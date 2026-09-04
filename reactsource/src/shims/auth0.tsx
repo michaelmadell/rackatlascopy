@@ -2,11 +2,11 @@ import React, { createContext, useContext } from 'react';
 
 export const mockUser = {
   sub: 'auth0|mock-user-1',
-  name: 'Michael Madell',
-  nickname: 'Michael',
-  email: 'info@monkeys3dprints.co.uk',
+  name: 'Amulet Admin',
+  nickname: 'admin',
+  email: 'admin@example.com',
   email_verified: true,
-  picture: 'https://avatar.vercel.sh/michael',
+  picture: 'https://avatar.vercel.sh/admin',
 };
 
 const mockAuthValue = {
