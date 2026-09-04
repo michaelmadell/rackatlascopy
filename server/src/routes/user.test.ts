@@ -75,4 +75,27 @@ describe('user routes', () => {
     expect(res.json()).toEqual({ success: true })
     expect(db.prepare('SELECT id FROM users WHERE id = ?').get(userId)).toBeUndefined()
   })
+
+  it('POST /user/:id/avatar returns 404 for unknown user', async () => {
+    const unknownId = randomUUID()
+    const res = await app.inject({
+      method: 'POST',
+      url: `/user/${unknownId}/avatar`,
+      headers: AUTH
+    })
+    expect(res.statusCode).toBe(404)
+  })
+
+  it('POST /user/:id/avatar includes _id and id in response', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/user/${userId}/avatar`,
+      headers: AUTH
+    })
+    expect(res.statusCode).toBe(200)
+    const data = res.json().data
+    expect(data._id).toBe(userId)
+    expect(data.id).toBe(userId)
+    expect(data.avatar).toBe(`https://avatar.vercel.sh/${userId}`)
+  })
 })

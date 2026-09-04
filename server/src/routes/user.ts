@@ -99,10 +99,15 @@ export function registerUserRoutes(app: FastifyInstance, db: Database.Database):
   app.post('/user/:id/avatar', async (req) => {
     const { id } = req.params as { id: string }
     // Local dev stub: accepts the multipart upload, doesn't persist the file.
-    await req.file()
+    try {
+      await req.file()
+    } catch {
+      // Ignore errors from file parsing; this is a stub handler
+    }
     const url = `https://avatar.vercel.sh/${id}`
-    db.prepare('UPDATE users SET avatar = ? WHERE id = ?').run(url, id)
-    return { data: { avatar: url } }
+    const result = db.prepare('UPDATE users SET avatar = ? WHERE id = ?').run(url, id)
+    if (result.changes === 0) throw notFound('user')
+    return { data: { _id: id, id, avatar: url } }
   })
 
   app.post('/user/:id/password', async (req) => {
