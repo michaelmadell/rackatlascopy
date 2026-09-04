@@ -1,8 +1,33 @@
 import type { FastifyInstance } from 'fastify'
 import type Database from 'better-sqlite3'
-import { randomUUID } from 'node:crypto'
 import { registerCrudRoutes } from '../lib/crud-factory'
-import { notFound } from '../lib/errors'
+import { ApiError, notFound } from '../lib/errors'
+
+/**
+ * Shape of a room as the frontend consumes it.
+ *
+ * `floorPlanShapePoints` is the name the app both writes and reads
+ * (t.$tenantId.locations.$locationId.index.tsx:938/943); `polygon` is kept as
+ * an alias so the seed data and the older floor-plan payload keep working.
+ */
+export function roomRowToDoc(row: any): Record<string, unknown> {
+  const points = row.polygon_json ? JSON.parse(row.polygon_json) : []
+  return {
+    _id: row.id,
+    id: row.id,
+    tenantId: row.tenant_id,
+    floorId: row.floor_id,
+    locationId: row.location_id,
+    name: row.name,
+    label: row.label,
+    reference: row.reference,
+    color: row.color,
+    responsibleUserId: row.responsible_user_id,
+    floorPlanShapeType: row.floor_plan_shape_type,
+    floorPlanShapePoints: points,
+    polygon: points
+  }
+}
 
 export function registerLocationRoutes(app: FastifyInstance, db: Database.Database): void {
   const scope = { column: 'tenant_id', param: 'tenantId' }
@@ -12,9 +37,13 @@ export function registerLocationRoutes(app: FastifyInstance, db: Database.Databa
     scope,
     columns: [
       { db: 'name', api: 'name' },
+      { db: 'reference', api: 'reference' },
       { db: 'address', api: 'address' },
       { db: 'city', api: 'city' },
-      { db: 'country', api: 'country' }
+      { db: 'country', api: 'country' },
+      { db: 'latitude', api: 'latitude' },
+      { db: 'longitude', api: 'longitude' },
+      { db: 'responsible_user_id', api: 'responsibleUserId' }
     ],
     sortableColumns: ['name'],
     defaultSort: 'name'
@@ -25,12 +54,15 @@ export function registerLocationRoutes(app: FastifyInstance, db: Database.Databa
     scope,
     columns: [
       { db: 'name', api: 'name' },
+      { db: 'reference', api: 'reference' },
       { db: 'level', api: 'level' },
       { db: 'location_id', api: 'locationId' },
       { db: 'floor_plan_image', api: 'floorPlanImage' },
-      { db: 'bounds_json', api: 'bounds', json: true }
+      { db: 'bounds_json', api: 'bounds', json: true },
+      { db: 'responsible_user_id', api: 'responsibleUserId' }
     ],
-    sortableColumns: ['name', 'level']
+    sortableColumns: ['name', 'level'],
+    filterableColumns: ['locationId']
   })
 
   app.get('/tenant/:tenantId/floor/:id/floor-plan', async (req) => {
@@ -44,14 +76,7 @@ export function registerLocationRoutes(app: FastifyInstance, db: Database.Databa
         id: floor.id,
         floorPlanImage: floor.floor_plan_image,
         bounds: floor.bounds_json ? JSON.parse(floor.bounds_json) : undefined,
-        rooms: rooms.map((r) => ({
-          _id: r.id,
-          id: r.id,
-          name: r.name,
-          label: r.label,
-          color: r.color,
-          polygon: r.polygon_json ? JSON.parse(r.polygon_json) : []
-        }))
+        rooms: rooms.map(roomRowToDoc)
       }
     }
   })
@@ -62,46 +87,34 @@ export function registerLocationRoutes(app: FastifyInstance, db: Database.Databa
     columns: [
       { db: 'name', api: 'name' },
       { db: 'label', api: 'label' },
+      { db: 'reference', api: 'reference' },
       { db: 'color', api: 'color' },
       { db: 'floor_id', api: 'floorId' },
-      { db: 'polygon_json', api: 'polygon', json: true }
+      { db: 'location_id', api: 'locationId' },
+      { db: 'responsible_user_id', api: 'responsibleUserId' },
+      { db: 'floor_plan_shape_type', api: 'floorPlanShapeType' },
+      { db: 'polygon_json', api: 'polygon', json: true },
+      // The name the app actually writes and reads back; shares polygon_json
+      // with the legacy `polygon` alias above.
+      { db: 'polygon_json', api: 'floorPlanShapePoints', json: true }
     ],
-    sortableColumns: ['name']
+    sortableColumns: ['name'],
+    filterableColumns: ['floorId', 'locationId']
   })
 
+  /**
+   * Despite the POST verb this is a READ: the app uses it to list the rooms of
+   * one floor (t.$tenantId.locations.$locationId.index.tsx:172-181).
+   * `attachRoomPermissions` is accepted and answered with an empty
+   * `permissions` map — this backend has no permissions system (plan non-goal).
+   */
   app.post('/tenant/:tenantId/room/bulk', async (req) => {
     const { tenantId } = req.params as { tenantId: string }
-    const { rooms } = req.body as { rooms: Array<Record<string, unknown>> }
-    const insert = db.prepare(
-      `INSERT INTO rooms (id, tenant_id, floor_id, name, label, color, polygon_json) VALUES (?, ?, ?, ?, ?, ?, ?)`
-    )
-    const select = db.prepare('SELECT * FROM rooms WHERE id = ? AND tenant_id = ?')
-    const created = rooms.map((room) => {
-      const id = randomUUID()
-      insert.run(
-        id,
-        tenantId,
-        room.floorId ?? null,
-        room.name ?? '',
-        room.label ?? null,
-        room.color ?? null,
-        JSON.stringify(room.polygon ?? [])
-      )
-      // Build the response from the row actually persisted, not the raw request
-      // body — the body may carry extraneous or spoofed fields (e.g. a fake
-      // tenantId) that must never be echoed back as if they were saved.
-      const row = select.get(id, tenantId) as any
-      return {
-        _id: row.id,
-        id: row.id,
-        tenantId: row.tenant_id,
-        floorId: row.floor_id,
-        name: row.name,
-        label: row.label,
-        color: row.color,
-        polygon: row.polygon_json ? JSON.parse(row.polygon_json) : []
-      }
-    })
-    return { data: created }
+    const { floorId } = (req.body ?? {}) as { floorId?: string }
+    if (!floorId) throw new ApiError(400, 'room/bulk requires a floorId')
+    const rows = db
+      .prepare('SELECT * FROM rooms WHERE tenant_id = ? AND floor_id = ?')
+      .all(tenantId, floorId) as any[]
+    return { data: rows.map(roomRowToDoc), permissions: {} }
   })
 }

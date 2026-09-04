@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type Database from 'better-sqlite3'
 import { randomUUID } from 'node:crypto'
-import { notFound } from './errors'
+import { ApiError, notFound } from './errors'
 import { paginate } from './pagination'
 
 export interface ColumnDef {
@@ -20,8 +20,35 @@ export interface CrudResourceConfig {
   columns: ColumnDef[]
   scope?: ScopeDef
   sortableColumns?: string[]
+  /** API field names accepted as `?field=value` equality filters on the list route. */
+  filterableColumns?: string[]
   defaultSort?: string
   readOnly?: boolean
+}
+
+/**
+ * Body keys every resource tolerates without them mapping to a column.
+ *
+ * `_id`/`id` are consumed by the POST handler itself; `tenantId` is
+ * deliberately ignored (the scope always comes from the URL, never the body —
+ * see the tenant-isolation tests); the timestamp/version keys are Mongo-era
+ * echoes the frontend round-trips back on edit forms.
+ */
+const ALWAYS_ALLOWED_BODY_KEYS = new Set(['_id', 'id', 'tenantId', 'createdAt', 'updatedAt', 'deletedAt', '__v'])
+
+/**
+ * Reject body keys that map to no column.
+ *
+ * Without this, `docToRow` silently drops them and the PATCH handler skips the
+ * UPDATE entirely — a client PATCHing with the wrong field names gets a 200
+ * and zero effect. Loud 400 beats silent write-loss.
+ */
+function assertKnownBodyKeys(body: Record<string, unknown>, columns: ColumnDef[]): void {
+  const known = new Set(columns.map((c) => c.api))
+  const unknown = Object.keys(body).filter((k) => !known.has(k) && !ALWAYS_ALLOWED_BODY_KEYS.has(k))
+  if (unknown.length > 0) {
+    throw new ApiError(400, `Unrecognized field(s): ${unknown.join(', ')}`)
+  }
 }
 
 function rowToDoc(row: Record<string, unknown>, columns: ColumnDef[]): Record<string, unknown> {
@@ -49,8 +76,10 @@ export function registerCrudRoutes(
   basePath: string,
   config: CrudResourceConfig
 ): void {
-  const { table, columns, scope, sortableColumns = [], defaultSort, readOnly } = config
-  const allCols = ['id', ...(scope ? [scope.column] : []), ...columns.map((c) => c.db)]
+  const { table, columns, scope, sortableColumns = [], filterableColumns = [], defaultSort, readOnly } = config
+  // Deduped: several api fields may share one db column (e.g. `type` and
+  // `deviceType`), and a repeated name in the SELECT list buys nothing.
+  const allCols = [...new Set(['id', ...(scope ? [scope.column] : []), ...columns.map((c) => c.db)])]
 
   function scopeValue(req: FastifyRequest): string | undefined {
     return scope ? (req.params as Record<string, string>)[scope.param] : undefined
@@ -62,11 +91,23 @@ export function registerCrudRoutes(
     const limit = Number(query.limit) || 100
     const sortParam = query.sort || defaultSort
 
-    let sql = `SELECT ${allCols.join(', ')} FROM ${table}`
+    let sql = `SELECT ${allCols.join(', ')} FROM ${table} WHERE 1 = 1`
     const params: unknown[] = []
     if (scope) {
-      sql += ` WHERE ${scope.column} = ?`
+      sql += ` AND ${scope.column} = ?`
       params.push(scopeValue(req))
+    }
+    // Equality filters, e.g. `?deviceType=rack`. Query params that name no
+    // filterable field (`deletedAt=null`, `attachPermissions`, …) are ignored
+    // rather than rejected — the frontend sends several the backend has no
+    // concept of, and failing the list request over them helps nobody.
+    for (const apiField of filterableColumns) {
+      const value = query[apiField]
+      if (value === undefined) continue
+      const col = columns.find((c) => c.api === apiField)
+      if (!col) continue
+      sql += ` AND ${col.db} = ?`
+      params.push(value)
     }
     if (sortParam) {
       const desc = sortParam.startsWith('-')
@@ -98,6 +139,7 @@ export function registerCrudRoutes(
   if (!readOnly) {
     app.post(basePath, async (req) => {
       const body = (req.body ?? {}) as Record<string, unknown>
+      assertKnownBodyKeys(body, columns)
       const id = (body._id as string) || (body.id as string) || randomUUID()
       const rowValues = docToRow(body, columns)
       const cols = ['id', ...(scope ? [scope.column] : []), ...Object.keys(rowValues)]
@@ -111,6 +153,7 @@ export function registerCrudRoutes(
     app.patch(`${basePath}/:id`, async (req) => {
       const { id } = req.params as { id: string }
       const body = (req.body ?? {}) as Record<string, unknown>
+      assertKnownBodyKeys(body, columns)
       const rowValues = docToRow(body, columns)
       const keys = Object.keys(rowValues)
       if (keys.length > 0) {

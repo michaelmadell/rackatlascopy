@@ -24,19 +24,197 @@ describe('device-connection routes', () => {
     app = buildApp({ db, jwtSecret: SECRET })
   })
 
-  it('POST .../batch creates multiple connections and PATCH updates one', async () => {
-    const res = await app.inject({
+  // The app's create shape, taken verbatim from
+  // t.$tenantId.locations.$locationId.devices.$deviceId.tsx:574-582.
+  const CREATE_ITEM = {
+    locationId: 'loc-1',
+    device1Id: 'd1',
+    device2Id: 'd2',
+    port1Name: '01',
+    port2Name: '02',
+    direction: 'front-external',
+    connectionType: 'fibre'
+  }
+
+  async function batch(tenantId: string, body: Record<string, unknown>) {
+    return app.inject({
       method: 'POST',
-      url: `/tenant/${TENANT_ID}/device-connection/batch`,
+      url: `/tenant/${tenantId}/device-connection/batch`,
       headers: AUTH,
-      payload: {
-        connections: [
-          { fromDeviceId: 'd1', fromPort: '1', toDeviceId: 'd2', toPort: '1', cableColor: 'blue' }
-        ]
-      }
+      payload: body
     })
-    expect(res.statusCode).toBe(200)
-    const connectionId = res.json().data[0]._id
+  }
+
+  describe('POST .../batch (transactional create + delete)', () => {
+    it('creates from `create` under the app\'s field names and echoes them back', async () => {
+      const res = await batch(TENANT_ID, { create: [CREATE_ITEM], delete: [] })
+      expect(res.statusCode).toBe(200)
+
+      const created = res.json().data.created
+      expect(created).toHaveLength(1)
+      expect(created[0]).toMatchObject({
+        device1Id: 'd1',
+        device2Id: 'd2',
+        port1Name: '01',
+        port2Name: '02',
+        direction: 'front-external',
+        connectionType: 'fibre',
+        locationId: 'loc-1'
+      })
+      // Both vocabularies, since the codebase reads each in different places.
+      expect(created[0].fromDeviceId).toBe('d1')
+      expect(created[0].toPort).toBe('02')
+      expect(created[0]._id).toBe(created[0].id)
+
+      const row = db.prepare('SELECT * FROM device_connections WHERE id = ?').get(created[0]._id) as any
+      expect(row.from_device_id).toBe('d1')
+      expect(row.direction).toBe('front-external')
+      expect(row.type).toBe('fibre')
+      expect(row.tenant_id).toBe(TENANT_ID)
+    })
+
+    it('deletes the ids in `delete` and reports them', async () => {
+      const created = await batch(TENANT_ID, { create: [CREATE_ITEM], delete: [] })
+      const connectionId = created.json().data.created[0]._id
+
+      const res = await batch(TENANT_ID, { create: [], delete: [connectionId] })
+      expect(res.statusCode).toBe(200)
+      expect(res.json().data.deleted).toEqual([connectionId])
+      expect(db.prepare('SELECT COUNT(*) AS n FROM device_connections').get()).toEqual({ n: 0 })
+    })
+
+    it('applies create and delete in one call', async () => {
+      const first = await batch(TENANT_ID, { create: [CREATE_ITEM], delete: [] })
+      const oldId = first.json().data.created[0]._id
+
+      const res = await batch(TENANT_ID, {
+        create: [{ ...CREATE_ITEM, device1Id: 'd3' }],
+        delete: [oldId]
+      })
+      expect(res.json().data.created[0].device1Id).toBe('d3')
+      expect(res.json().data.deleted).toEqual([oldId])
+
+      const remaining = db.prepare('SELECT from_device_id FROM device_connections').all() as any[]
+      expect(remaining).toEqual([{ from_device_id: 'd3' }])
+    })
+
+    it('rolls the whole batch back when a create fails', async () => {
+      const first = await batch(TENANT_ID, { create: [CREATE_ITEM], delete: [] })
+      const oldId = first.json().data.created[0]._id
+
+      // A non-scalar for a scalar column makes better-sqlite3 throw mid-batch.
+      const res = await batch(TENANT_ID, {
+        create: [{ ...CREATE_ITEM, device1Id: 'd3' }, { ...CREATE_ITEM, device1Id: { nope: true } }],
+        delete: [oldId]
+      })
+      expect(res.statusCode).toBe(500)
+
+      // Neither the delete nor the first insert may survive a failed batch.
+      const rows = db.prepare('SELECT id FROM device_connections').all() as { id: string }[]
+      expect(rows.map((r) => r.id)).toEqual([oldId])
+    })
+
+    it('answers the app\'s hasCassetteChanges() probe', async () => {
+      const res = await batch(TENANT_ID, { create: [], delete: [] })
+      expect(res.json().hasChanges).toBe(false)
+    })
+
+    it('builds the response from the persisted row, not the raw request body', async () => {
+      const res = await batch(TENANT_ID, {
+        create: [{ ...CREATE_ITEM, tenantId: 'tenant-2', bogus: 'x' }],
+        delete: []
+      })
+      expect(res.statusCode).toBe(200)
+      const created = res.json().data.created[0]
+      expect(created.bogus).toBeUndefined()
+      expect(created.tenantId).toBe(TENANT_ID)
+
+      const row = db.prepare('SELECT tenant_id FROM device_connections WHERE id = ?').get(created.id) as {
+        tenant_id: string
+      }
+      expect(row.tenant_id).toBe(TENANT_ID)
+    })
+
+    it('cannot delete another tenant\'s connection', async () => {
+      const created = await batch(TENANT_ID, { create: [CREATE_ITEM], delete: [] })
+      const connectionId = created.json().data.created[0]._id
+
+      const res = await batch('tenant-2', { create: [], delete: [connectionId] })
+      expect(res.statusCode).toBe(200)
+      expect(res.json().data.deleted).toEqual([])
+      expect(db.prepare('SELECT COUNT(*) AS n FROM device_connections').get()).toEqual({ n: 1 })
+    })
+  })
+
+  describe('POST .../bulk (fetch connections by id)', () => {
+    it('returns exactly the requested ids', async () => {
+      const created = await batch(TENANT_ID, {
+        create: [CREATE_ITEM, { ...CREATE_ITEM, device1Id: 'd3' }, { ...CREATE_ITEM, device1Id: 'd4' }],
+        delete: []
+      })
+      const [a, b] = created.json().data.created.map((c: { _id: string }) => c._id)
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/tenant/${TENANT_ID}/device-connection/bulk`,
+        headers: AUTH,
+        payload: { ids: [a, b] }
+      })
+      expect(res.statusCode).toBe(200)
+      expect(res.json().data.map((c: { _id: string }) => c._id).sort()).toEqual([a, b].sort())
+      // index.tsx:224 filters on `direction`, so it has to come back.
+      expect(res.json().data[0].direction).toBe('front-external')
+    })
+
+    it('creates nothing — it is a read', async () => {
+      await app.inject({
+        method: 'POST',
+        url: `/tenant/${TENANT_ID}/device-connection/bulk`,
+        headers: AUTH,
+        payload: { ids: ['no-such-id'] }
+      })
+      expect(db.prepare('SELECT COUNT(*) AS n FROM device_connections').get()).toEqual({ n: 0 })
+    })
+
+    it('returns an empty list for an empty id list', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/tenant/${TENANT_ID}/device-connection/bulk`,
+        headers: AUTH,
+        payload: { ids: [] }
+      })
+      expect(res.statusCode).toBe(200)
+      expect(res.json().data).toEqual([])
+    })
+
+    it('rejects a body with no ids array', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/tenant/${TENANT_ID}/device-connection/bulk`,
+        headers: AUTH,
+        payload: {}
+      })
+      expect(res.statusCode).toBe(400)
+    })
+
+    it('will not read another tenant\'s connections, even by exact id', async () => {
+      const created = await batch(TENANT_ID, { create: [CREATE_ITEM], delete: [] })
+      const connectionId = created.json().data.created[0]._id
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/tenant/tenant-2/device-connection/bulk',
+        headers: AUTH,
+        payload: { ids: [connectionId] }
+      })
+      expect(res.statusCode).toBe(200)
+      expect(res.json().data).toEqual([])
+    })
+  })
+
+  it('PATCH updates a connection and DELETE removes it', async () => {
+    const created = await batch(TENANT_ID, { create: [CREATE_ITEM], delete: [] })
+    const connectionId = created.json().data.created[0]._id
 
     const patched = await app.inject({
       method: 'PATCH',
@@ -45,18 +223,6 @@ describe('device-connection routes', () => {
       payload: { cableColor: 'red' }
     })
     expect(patched.json().data.cableColor).toBe('red')
-  })
-
-  it('POST .../bulk creates connections and DELETE removes one', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: `/tenant/${TENANT_ID}/device-connection/bulk`,
-      headers: AUTH,
-      payload: {
-        connections: [{ fromDeviceId: 'd3', fromPort: '2', toDeviceId: 'd4', toPort: '2' }]
-      }
-    })
-    const connectionId = res.json().data[0]._id
 
     const deleted = await app.inject({
       method: 'DELETE',
@@ -66,37 +232,9 @@ describe('device-connection routes', () => {
     expect(deleted.json()).toEqual({ success: true })
   })
 
-  it('POST .../batch builds the response from the persisted row, not the raw request body', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: `/tenant/${TENANT_ID}/device-connection/batch`,
-      headers: AUTH,
-      payload: {
-        connections: [
-          { fromDeviceId: 'd1', fromPort: '1', toDeviceId: 'd2', toPort: '1', tenantId: 'tenant-2', bogus: 'x' }
-        ]
-      }
-    })
-    expect(res.statusCode).toBe(200)
-    const created = res.json().data[0]
-    expect(created.bogus).toBeUndefined()
-
-    const row = db.prepare('SELECT tenant_id FROM device_connections WHERE id = ?').get(created.id) as {
-      tenant_id: string
-    }
-    expect(row.tenant_id).toBe(TENANT_ID)
-  })
-
   it('a connection created under one tenant is invisible/unpatchable/undeletable via another tenant URL', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: `/tenant/${TENANT_ID}/device-connection/batch`,
-      headers: AUTH,
-      payload: {
-        connections: [{ fromDeviceId: 'd1', fromPort: '1', toDeviceId: 'd2', toPort: '1' }]
-      }
-    })
-    const connectionId = res.json().data[0]._id
+    const res = await batch(TENANT_ID, { create: [CREATE_ITEM], delete: [] })
+    const connectionId = res.json().data.created[0]._id
 
     const patchWrongTenant = await app.inject({
       method: 'PATCH',

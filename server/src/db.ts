@@ -147,4 +147,49 @@ function migrate(db: Database.Database): void {
       created_at TEXT NOT NULL
     );
   `)
+
+  // Columns added after the initial schema. The real frontend sends a wider
+  // field set than the original spec's `types/index.ts` declared (see the
+  // final review of the dcim-local-backend branch), and the CRUD factory now
+  // rejects unknown body keys rather than silently dropping them — so every
+  // field the app actually writes needs a home here.
+  addColumns(db, 'customers', { standard_device_type_prefixes_json: 'TEXT' })
+  addColumns(db, 'locations', {
+    reference: 'TEXT',
+    responsible_user_id: 'TEXT',
+    latitude: 'REAL',
+    longitude: 'REAL'
+  })
+  addColumns(db, 'floors', { reference: 'TEXT', responsible_user_id: 'TEXT' })
+  addColumns(db, 'rooms', {
+    reference: 'TEXT',
+    responsible_user_id: 'TEXT',
+    location_id: 'TEXT',
+    floor_plan_shape_type: 'TEXT'
+  })
+  addColumns(db, 'devices', {
+    reference: 'TEXT',
+    responsible_user_id: 'TEXT',
+    floor_id: 'TEXT',
+    category: 'TEXT',
+    custom_device_type_id: 'TEXT',
+    elements_json: 'TEXT'
+  })
+  addColumns(db, 'device_connections', {
+    direction: 'TEXT',
+    cassette_color: 'TEXT',
+    location_id: 'TEXT',
+    floor_id: 'TEXT',
+    room_id: 'TEXT'
+  })
+}
+
+/** Idempotent ALTER TABLE ADD COLUMN — SQLite has no `ADD COLUMN IF NOT EXISTS`. */
+function addColumns(db: Database.Database, table: string, columns: Record<string, string>): void {
+  const existing = new Set(
+    (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name)
+  )
+  for (const [name, type] of Object.entries(columns)) {
+    if (!existing.has(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`)
+  }
 }

@@ -1,24 +1,42 @@
 import type { FastifyInstance } from 'fastify'
 import type Database from 'better-sqlite3'
 import { randomUUID } from 'node:crypto'
-import { notFound } from '../lib/errors'
+import { ApiError, notFound } from '../lib/errors'
 
 const insertSql = `
-  INSERT INTO device_connections (id, tenant_id, from_device_id, from_port, to_device_id, to_port, cable_color, type)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO device_connections
+    (id, tenant_id, from_device_id, from_port, to_device_id, to_port, cable_color, cassette_color,
+     type, direction, location_id, floor_id, room_id)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
+/**
+ * The app reads connections under a second set of names — `device1Id`,
+ * `device2Id`, `port1Name`, `port2Name`, `connectionType`, plus `direction`
+ * (t.$tenantId.locations.$locationId.index.tsx:224 filters on it) — so every
+ * document carries both vocabularies over the same columns.
+ */
 function rowToDoc(row: any): Record<string, unknown> {
   return {
     _id: row.id,
     id: row.id,
     tenantId: row.tenant_id,
     fromDeviceId: row.from_device_id,
+    device1Id: row.from_device_id,
     fromPort: row.from_port,
+    port1Name: row.from_port,
     toDeviceId: row.to_device_id,
+    device2Id: row.to_device_id,
     toPort: row.to_port,
+    port2Name: row.to_port,
     cableColor: row.cable_color,
-    type: row.type
+    cassetteColor: row.cassette_color,
+    type: row.type,
+    connectionType: row.type,
+    direction: row.direction,
+    locationId: row.location_id,
+    floorId: row.floor_id,
+    roomId: row.room_id
   }
 }
 
@@ -31,12 +49,17 @@ function insertConnection(
   db.prepare(insertSql).run(
     id,
     tenantId,
-    c.fromDeviceId ?? null,
-    c.fromPort ?? null,
-    c.toDeviceId ?? null,
-    c.toPort ?? null,
+    c.fromDeviceId ?? c.device1Id ?? null,
+    c.fromPort ?? c.port1Name ?? null,
+    c.toDeviceId ?? c.device2Id ?? null,
+    c.toPort ?? c.port2Name ?? null,
     c.cableColor ?? null,
-    c.type ?? null
+    c.cassetteColor ?? null,
+    c.type ?? c.connectionType ?? null,
+    c.direction ?? null,
+    c.locationId ?? null,
+    c.floorId ?? null,
+    c.roomId ?? null
   )
   // Build the response from the row actually persisted, not the raw request
   // body — the body may carry extraneous or spoofed fields (e.g. a fake
@@ -46,16 +69,55 @@ function insertConnection(
 }
 
 export function registerDeviceConnectionRoutes(app: FastifyInstance, db: Database.Database): void {
+  /**
+   * Transactional create + delete in one request:
+   *   { create: [...], delete: [id, ...] }
+   * (t.$tenantId.locations.$locationId.devices.$deviceId.tsx:584-587/609-612,
+   *  t.$tenantId.locations.$locationId.index.tsx:1120-1135/1239-1242/1270-1273).
+   *
+   * `hasChanges` answers the app's `hasCassetteChanges(response.data)` check —
+   * this backend rewrites no cassette colours, so it is always false.
+   */
   app.post('/tenant/:tenantId/device-connection/batch', async (req) => {
     const { tenantId } = req.params as { tenantId: string }
-    const { connections } = req.body as { connections: Array<Record<string, unknown>> }
-    return { data: connections.map((c) => insertConnection(db, tenantId, c)) }
+    const body = (req.body ?? {}) as { create?: Array<Record<string, unknown>>; delete?: string[] }
+    const toCreate = body.create ?? []
+    const toDelete = body.delete ?? []
+    if (!Array.isArray(toCreate) || !Array.isArray(toDelete)) {
+      throw new ApiError(400, 'device-connection/batch requires `create` and `delete` arrays')
+    }
+
+    // All-or-nothing: a half-applied batch would leave the app's cached
+    // connection ids pointing at rows that never existed.
+    const apply = db.transaction(() => {
+      const created = toCreate.map((c) => insertConnection(db, tenantId, c))
+      const deleted: string[] = []
+      const del = db.prepare('DELETE FROM device_connections WHERE id = ? AND tenant_id = ?')
+      for (const id of toDelete) {
+        // Scoped by tenant: an id belonging to another tenant simply matches
+        // nothing rather than deleting across the boundary.
+        if (del.run(id, tenantId).changes > 0) deleted.push(id)
+      }
+      return { created, deleted }
+    })
+
+    return { data: apply(), hasChanges: false }
   })
 
+  /**
+   * Despite the POST verb this is a READ: fetch a set of connections by id
+   * (devices.$deviceId.tsx:123-126, index.tsx:219-221).
+   */
   app.post('/tenant/:tenantId/device-connection/bulk', async (req) => {
     const { tenantId } = req.params as { tenantId: string }
-    const { connections } = req.body as { connections: Array<Record<string, unknown>> }
-    return { data: connections.map((c) => insertConnection(db, tenantId, c)) }
+    const { ids } = (req.body ?? {}) as { ids?: string[] }
+    if (!Array.isArray(ids)) throw new ApiError(400, 'device-connection/bulk requires an `ids` array')
+    if (ids.length === 0) return { data: [] }
+    const placeholders = ids.map(() => '?').join(', ')
+    const rows = db
+      .prepare(`SELECT * FROM device_connections WHERE tenant_id = ? AND id IN (${placeholders})`)
+      .all(tenantId, ...ids) as any[]
+    return { data: rows.map(rowToDoc) }
   })
 
   app.patch('/tenant/:tenantId/device-connection/:id', async (req) => {
@@ -65,14 +127,26 @@ export function registerDeviceConnectionRoutes(app: FastifyInstance, db: Databas
     const values: unknown[] = []
     const map: Record<string, string> = {
       fromDeviceId: 'from_device_id',
+      device1Id: 'from_device_id',
       fromPort: 'from_port',
+      port1Name: 'from_port',
       toDeviceId: 'to_device_id',
+      device2Id: 'to_device_id',
       toPort: 'to_port',
+      port2Name: 'to_port',
       cableColor: 'cable_color',
-      type: 'type'
+      cassetteColor: 'cassette_color',
+      type: 'type',
+      connectionType: 'type',
+      direction: 'direction',
+      locationId: 'location_id',
+      floorId: 'floor_id',
+      roomId: 'room_id'
     }
+    const assigned = new Set<string>()
     for (const [apiKey, dbKey] of Object.entries(map)) {
-      if (apiKey in body) {
+      if (apiKey in body && !assigned.has(dbKey)) {
+        assigned.add(dbKey)
         sets.push(`${dbKey} = ?`)
         values.push(body[apiKey])
       }

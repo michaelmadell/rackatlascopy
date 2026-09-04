@@ -110,38 +110,117 @@ describe('location/floor/room routes', () => {
     expect(stillThere.json().data.name).toBe('HQ')
   })
 
-  it('POST /tenant/:tenantId/room/bulk creates multiple rooms', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: `/tenant/${TENANT_ID}/room/bulk`,
-      headers: AUTH,
-      payload: { rooms: [{ name: 'Room A', floorId: 'flr-1' }, { name: 'Room B', floorId: 'flr-1' }] }
+  // POST /room/bulk is a READ despite the verb: the app posts
+  // { floorId, attachRoomPermissions } to list one floor's rooms
+  // (t.$tenantId.locations.$locationId.index.tsx:172-181).
+  describe('POST /tenant/:tenantId/room/bulk (list rooms by floor)', () => {
+    async function makeRoom(tenantId: string, name: string, floorId: string) {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/tenant/${tenantId}/room`,
+        headers: AUTH,
+        payload: { name, floorId }
+      })
+      expect(res.statusCode).toBe(200)
+      return res.json().data._id as string
+    }
+
+    it('returns the rooms of the requested floor, and nothing from other floors', async () => {
+      await makeRoom(TENANT_ID, 'Room A', 'flr-1')
+      await makeRoom(TENANT_ID, 'Room B', 'flr-1')
+      await makeRoom(TENANT_ID, 'Elsewhere', 'flr-2')
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/tenant/${TENANT_ID}/room/bulk`,
+        headers: AUTH,
+        payload: { floorId: 'flr-1', attachRoomPermissions: true }
+      })
+      expect(res.statusCode).toBe(200)
+      const names = res.json().data.map((r: { name: string }) => r.name).sort()
+      expect(names).toEqual(['Room A', 'Room B'])
+      // The app reads res.data.permissions; no permissions system here, so an
+      // empty map keeps the destructure honest.
+      expect(res.json().permissions).toEqual({})
     })
-    expect(res.statusCode).toBe(200)
-    expect(res.json().data).toHaveLength(2)
+
+    it('creates nothing — it is a read', async () => {
+      await app.inject({
+        method: 'POST',
+        url: `/tenant/${TENANT_ID}/room/bulk`,
+        headers: AUTH,
+        payload: { floorId: 'flr-1' }
+      })
+      const count = db.prepare('SELECT COUNT(*) AS n FROM rooms').get() as { n: number }
+      expect(count.n).toBe(0)
+    })
+
+    it('never crosses the tenant boundary', async () => {
+      await makeRoom('tenant-2', 'Other tenant room', 'flr-1')
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/tenant/${TENANT_ID}/room/bulk`,
+        headers: AUTH,
+        payload: { floorId: 'flr-1' }
+      })
+      expect(res.statusCode).toBe(200)
+      expect(res.json().data).toEqual([])
+    })
+
+    it('rejects a body with no floorId', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/tenant/${TENANT_ID}/room/bulk`,
+        headers: AUTH,
+        payload: {}
+      })
+      expect(res.statusCode).toBe(400)
+    })
+
+    it('returns floorPlanShapePoints, the field name the app reads', async () => {
+      const roomId = await makeRoom(TENANT_ID, 'Shaped', 'flr-1')
+      const points = [
+        { x: 0, y: 0 },
+        { x: 10, y: 0 },
+        { x: 10, y: 10 }
+      ]
+      const patched = await app.inject({
+        method: 'PATCH',
+        url: `/tenant/${TENANT_ID}/room/${roomId}`,
+        headers: AUTH,
+        payload: { floorId: 'flr-1', floorPlanShapePoints: points }
+      })
+      expect(patched.statusCode).toBe(200)
+      expect(patched.json().data.floorPlanShapePoints).toEqual(points)
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/tenant/${TENANT_ID}/room/bulk`,
+        headers: AUTH,
+        payload: { floorId: 'flr-1' }
+      })
+      expect(res.json().data[0].floorPlanShapePoints).toEqual(points)
+    })
   })
 
-  it('POST /tenant/:tenantId/room/bulk ignores a spoofed tenantId in the request body', async () => {
-    const res = await app.inject({
+  it('PATCH /room/:id rejects an unrecognized field instead of silently dropping it', async () => {
+    const created = await app.inject({
       method: 'POST',
-      url: `/tenant/${TENANT_ID}/room/bulk`,
+      url: `/tenant/${TENANT_ID}/room`,
       headers: AUTH,
-      payload: { rooms: [{ name: 'Room A', floorId: 'flr-1', tenantId: 'tenant-2' }] }
+      payload: { name: 'Server Room', floorId: 'flr-1' }
     })
-    expect(res.statusCode).toBe(200)
-    const created = res.json().data[0]
-    expect(created.tenantId).toBe(TENANT_ID)
+    const roomId = created.json().data._id
 
-    // The persisted row must carry the URL's tenantId, and must be visible
-    // when listing under tenant-1 and invisible under tenant-2.
-    const row = db.prepare('SELECT tenant_id FROM rooms WHERE id = ?').get(created.id) as { tenant_id: string }
-    expect(row.tenant_id).toBe(TENANT_ID)
-
-    const listedUnderTenant1 = await app.inject({ method: 'GET', url: `/tenant/${TENANT_ID}/room`, headers: AUTH })
-    expect(listedUnderTenant1.json().data.totalDocs).toBe(1)
-
-    const listedUnderTenant2 = await app.inject({ method: 'GET', url: '/tenant/tenant-2/room', headers: AUTH })
-    expect(listedUnderTenant2.json().data.totalDocs).toBe(0)
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/tenant/${TENANT_ID}/room/${roomId}`,
+      headers: AUTH,
+      payload: { nmae: 'typo' }
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error.message).toContain('nmae')
   })
 
   it('GET /tenant/:tenantId/floor/:id/floor-plan returns bounds + rooms', async () => {

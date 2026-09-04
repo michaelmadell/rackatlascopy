@@ -5,6 +5,7 @@ import { paginate } from '../lib/pagination'
 function rowToDoc(row: any): Record<string, unknown> {
   return {
     _id: row.id,
+    id: row.id,
     action: row.action,
     resource: row.resource,
     resourceId: row.resource_id,
