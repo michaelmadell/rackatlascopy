@@ -1,0 +1,49 @@
+import { describe, it, expect, beforeEach } from 'vitest'
+import { randomUUID } from 'node:crypto'
+import bcrypt from 'bcrypt'
+import { openDb } from '../db'
+import { buildApp } from '../app'
+
+const SECRET = 'test-secret'
+const AUTH = { authorization: 'Bearer mock-dev-access-token' }
+
+describe('custom-rack-device routes', () => {
+  let db: ReturnType<typeof openDb>
+  let app: ReturnType<typeof buildApp>
+  let deviceId: string
+
+  beforeEach(() => {
+    db = openDb(':memory:')
+    // The mock-dev-access-token used by AUTH resolves to the first seeded user
+    // (see auth/middleware.ts) — every protected-route test file seeds one.
+    db.prepare(
+      `INSERT INTO users (id, email, password_hash, name, role, is_customer_admin, customer_id) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(randomUUID(), 'admin@example.com', bcrypt.hashSync('admin', 10), 'Admin', 'admin', 1, 'cust-1')
+    deviceId = randomUUID()
+    db.prepare(
+      `INSERT INTO custom_rack_devices (id, name, brand, type, rack_units, ports_count, ports_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(deviceId, 'Catalyst 2960-X 24TS-L', 'Cisco', 'switch', 1, 28, '[]')
+    app = buildApp({ db, jwtSecret: SECRET })
+  })
+
+  it('lists the catalog', async () => {
+    const res = await app.inject({ method: 'GET', url: '/custom-rack-device', headers: AUTH })
+    expect(res.json().data.docs).toHaveLength(1)
+  })
+
+  it('gets one catalog entry', async () => {
+    const res = await app.inject({ method: 'GET', url: `/custom-rack-device/${deviceId}`, headers: AUTH })
+    expect(res.json().data.brand).toBe('Cisco')
+  })
+
+  it('rejects writes (read-only catalog)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/custom-rack-device',
+      headers: AUTH,
+      payload: { name: 'New' }
+    })
+    expect(res.statusCode).toBe(404) // no route registered for POST
+  })
+})
