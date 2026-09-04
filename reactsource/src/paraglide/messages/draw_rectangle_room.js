@@ -1,0 +1,34 @@
+/* eslint-disable */
+import { getLocale, trackMessageCall, experimentalMiddlewareLocaleSplitting, isServer } from '../runtime.js';
+/** @typedef {import('../runtime.js').LocalizedString} LocalizedString */
+
+const en_draw_rectangle_room = /** @type {(inputs: {}) => LocalizedString} */ () => {
+	return /** @type {LocalizedString} */ (`Draw rectangle room`)
+};
+
+const de_draw_rectangle_room = /** @type {(inputs: {}) => LocalizedString} */ () => {
+	return /** @type {LocalizedString} */ (`Rechteck-Raum zeichnen`)
+};
+
+/**
+* This function has been compiled by [Paraglide JS](https://inlang.com/m/gerre34r).
+*
+* - Changing this function will be over-written by the next build.
+*
+* - If you want to change the translations, you can either edit the source files e.g. `en.json`, or
+* use another inlang app like [Fink](https://inlang.com/m/tdozzpar) or the [VSCode extension Sherlock](https://inlang.com/m/r7kp499g).
+* 
+* @param {{}} inputs
+* @param {{ locale?: "en" | "de" }} options
+* @returns {LocalizedString}
+*/
+/* @__NO_SIDE_EFFECTS__ */
+export const draw_rectangle_room = (inputs = {}, options = {}) => {
+	if (experimentalMiddlewareLocaleSplitting && isServer === false) {
+		return /** @type {any} */ (globalThis).__paraglide_ssr.draw_rectangle_room(inputs) 
+	}
+	const locale = options.locale ?? getLocale()
+	trackMessageCall("draw_rectangle_room", locale)
+	if (locale === "en") return en_draw_rectangle_room(inputs)
+	return de_draw_rectangle_room(inputs)
+};
