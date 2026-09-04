@@ -33,6 +33,17 @@ describe('GET /log', () => {
     expect(res.json().data.docs).toHaveLength(2)
   })
 
+  // Plan-wide constraint: every document echoes both _id and id.
+  it('echoes both _id and id on every log document', async () => {
+    const res = await app.inject({ method: 'GET', url: '/log?tenantId=tenant-1', headers: AUTH })
+    const docs = res.json().data.docs as Array<{ _id: string; id: string }>
+    expect(docs.length).toBeGreaterThan(0)
+    for (const doc of docs) {
+      expect(doc.id).toBeDefined()
+      expect(doc.id).toBe(doc._id)
+    }
+  })
+
   it('filters by resource, including $in: lists', async () => {
     const res = await app.inject({
       method: 'GET',

@@ -120,6 +120,36 @@ export function registerDeviceConnectionRoutes(app: FastifyInstance, db: Databas
     return { data: rows.map(rowToDoc) }
   })
 
+  /**
+   * Not in the review's list, but it sits inside the same query function as
+   * `device/bulk` and `device-connection/bulk` (index.tsx:216-233) — inside a
+   * Promise.all, so a 404 here failed the whole floor view along with the two
+   * endpoints this pass was asked to fix.
+   *
+   * The pairs are passed down as a prop and never read in this frontend
+   * snapshot, so this returns the racks that genuinely share a connection and
+   * nothing more.
+   */
+  app.post('/tenant/:tenantId/device-connection/building-pairs', async (req) => {
+    const { tenantId } = req.params as { tenantId: string }
+    const { rackIds } = (req.body ?? {}) as { rackIds?: string[] }
+    if (!Array.isArray(rackIds)) throw new ApiError(400, 'building-pairs requires a `rackIds` array')
+    if (rackIds.length < 2) return { data: [] }
+
+    const placeholders = rackIds.map(() => '?').join(', ')
+    const rows = db
+      .prepare(
+        `SELECT DISTINCT from_device_id, to_device_id FROM device_connections
+         WHERE tenant_id = ?
+           AND from_device_id IN (${placeholders})
+           AND to_device_id IN (${placeholders})
+           AND from_device_id <> to_device_id`
+      )
+      .all(tenantId, ...rackIds, ...rackIds) as any[]
+
+    return { data: rows.map((r) => ({ rack1Id: r.from_device_id, rack2Id: r.to_device_id })) }
+  })
+
   app.patch('/tenant/:tenantId/device-connection/:id', async (req) => {
     const { tenantId, id } = req.params as { tenantId: string; id: string }
     const body = req.body as Record<string, unknown>

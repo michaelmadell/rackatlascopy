@@ -57,6 +57,57 @@ describe('registerCrudRoutes', () => {
     expect(afterDelete.statusCode).toBe(404)
   })
 
+  // Unknown keys used to be dropped by docToRow, and a PATCH whose every key
+  // was unknown skipped the UPDATE entirely — 200, zero effect, no error.
+  describe('unknown body keys', () => {
+    it('rejects them on POST, naming them', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/tenant',
+        payload: { name: 'HOME', nmae: 'typo', alsoWrong: 1 }
+      })
+      expect(res.statusCode).toBe(400)
+      expect(res.json().error.message).toContain('nmae')
+      expect(res.json().error.message).toContain('alsoWrong')
+      expect(db.prepare('SELECT COUNT(*) AS n FROM tenants').get()).toEqual({ n: 0 })
+    })
+
+    it('rejects them on PATCH instead of returning an unchanged doc', async () => {
+      const created = await app.inject({ method: 'POST', url: '/tenant', payload: { name: 'HOME' } })
+      const id = created.json().data._id
+
+      const res = await app.inject({ method: 'PATCH', url: `/tenant/${id}`, payload: { nmae: 'typo' } })
+      expect(res.statusCode).toBe(400)
+      expect(res.json().error.message).toContain('nmae')
+    })
+
+    it('still tolerates the identity/timestamp keys the frontend round-trips', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/tenant',
+        payload: { name: 'HOME', tenantId: 'ignored', createdAt: 'x', updatedAt: 'x', deletedAt: null, __v: 0 }
+      })
+      expect(res.statusCode).toBe(200)
+    })
+  })
+
+  it('filters the list by a filterable column and ignores unknown query params', async () => {
+    registerCrudRoutes(app, db, '/scoped-tenant', {
+      table: 'tenants',
+      columns: [
+        { db: 'name', api: 'name' },
+        { db: 'customer_id', api: 'customerId' }
+      ],
+      filterableColumns: ['customerId']
+    })
+    await app.inject({ method: 'POST', url: '/tenant', payload: { name: 'A', customerId: 'c1' } })
+    await app.inject({ method: 'POST', url: '/tenant', payload: { name: 'B', customerId: 'c2' } })
+
+    const res = await app.inject({ method: 'GET', url: '/scoped-tenant?customerId=c1&deletedAt=null&sort=-createdAt' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().data.docs.map((d: { name: string }) => d.name)).toEqual(['A'])
+  })
+
   it('404s on an unknown id', async () => {
     const res = await app.inject({ method: 'GET', url: '/tenant/does-not-exist' })
     expect(res.statusCode).toBe(404)

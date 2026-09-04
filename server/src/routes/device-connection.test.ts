@@ -212,6 +212,50 @@ describe('device-connection routes', () => {
     })
   })
 
+  // index.tsx:228-232 calls this inside the same Promise.all as device/bulk,
+  // so a 404 here took the whole floor view down with it.
+  describe('POST .../building-pairs', () => {
+    it('returns the rack pairs that share a connection', async () => {
+      await batch(TENANT_ID, {
+        create: [{ ...CREATE_ITEM, device1Id: 'rack-a', device2Id: 'rack-b' }],
+        delete: []
+      })
+      const res = await app.inject({
+        method: 'POST',
+        url: `/tenant/${TENANT_ID}/device-connection/building-pairs`,
+        headers: AUTH,
+        payload: { rackIds: ['rack-a', 'rack-b', 'rack-c'] }
+      })
+      expect(res.statusCode).toBe(200)
+      expect(res.json().data).toEqual([{ rack1Id: 'rack-a', rack2Id: 'rack-b' }])
+    })
+
+    it('does not pair racks across a tenant boundary', async () => {
+      await batch(TENANT_ID, {
+        create: [{ ...CREATE_ITEM, device1Id: 'rack-a', device2Id: 'rack-b' }],
+        delete: []
+      })
+      const res = await app.inject({
+        method: 'POST',
+        url: '/tenant/tenant-2/device-connection/building-pairs',
+        headers: AUTH,
+        payload: { rackIds: ['rack-a', 'rack-b'] }
+      })
+      expect(res.json().data).toEqual([])
+    })
+
+    it('returns an empty list for fewer than two racks', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/tenant/${TENANT_ID}/device-connection/building-pairs`,
+        headers: AUTH,
+        payload: { rackIds: ['rack-a'] }
+      })
+      expect(res.statusCode).toBe(200)
+      expect(res.json().data).toEqual([])
+    })
+  })
+
   it('PATCH updates a connection and DELETE removes it', async () => {
     const created = await batch(TENANT_ID, { create: [CREATE_ITEM], delete: [] })
     const connectionId = created.json().data.created[0]._id

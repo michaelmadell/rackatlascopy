@@ -46,11 +46,124 @@ describe('customer routes', () => {
     app = buildApp({ db, jwtSecret: SECRET })
   })
 
+  // hooks/useActivityLogs.tsx:81-91 feeds the activity-log resource-filter
+  // dropdown from this route; it 404'd before.
+  describe('GET /customer/:id/resources', () => {
+    beforeEach(() => {
+      db.prepare('INSERT INTO tenants (id, name, customer_id) VALUES (?, ?, ?)').run('tenant-1', 'HOME', customerId)
+      db.prepare('INSERT INTO tenants (id, name, customer_id) VALUES (?, ?, ?)').run('tenant-2', 'AWAY', customerId)
+      db.prepare('INSERT INTO tenants (id, name, customer_id) VALUES (?, ?, ?)').run(
+        'tenant-x',
+        'FOREIGN',
+        otherCustomerId
+      )
+      db.prepare('INSERT INTO locations (id, tenant_id, name, reference) VALUES (?, ?, ?, ?)').run(
+        'loc-1',
+        'tenant-1',
+        'HQ',
+        'HQ-01'
+      )
+      db.prepare('INSERT INTO locations (id, tenant_id, name) VALUES (?, ?, ?)').run('loc-2', 'tenant-2', 'Depot')
+      db.prepare('INSERT INTO locations (id, tenant_id, name) VALUES (?, ?, ?)').run('loc-x', 'tenant-x', 'Foreign')
+      db.prepare('INSERT INTO vlans (id, tenant_id, name) VALUES (?, ?, ?)').run('vlan-1', 'tenant-1', 'Default')
+      db.prepare('INSERT INTO wlans (id, tenant_id, ssid) VALUES (?, ?, ?)').run('wlan-1', 'tenant-1', 'Staff')
+    })
+
+    it('returns resources keyed by type, narrowed to the requested tenant', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/customer/${customerId}/resources?tenantId=tenant-1`,
+        headers: AUTH
+      })
+      expect(res.statusCode).toBe(200)
+      const data = res.json().data
+
+      // The hook iterates these exact keys (RESOURCE_TYPE_KEYS, :13-21).
+      expect(Object.keys(data).sort()).toEqual(
+        ['devices', 'floors', 'locations', 'rooms', 'tenants', 'vlans', 'wlans'].sort()
+      )
+      expect(data.locations).toEqual([{ _id: 'loc-1', id: 'loc-1', reference: 'HQ-01', fullReference: 'HQ-01' }])
+      expect(data.tenants.map((t: { _id: string }) => t._id)).toEqual(['tenant-1'])
+      // vlan is labelled by `name`, wlan by `ssid` (:493-494).
+      expect(data.vlans).toEqual([{ _id: 'vlan-1', id: 'vlan-1', name: 'Default' }])
+      expect(data.wlans).toEqual([{ _id: 'wlan-1', id: 'wlan-1', ssid: 'Staff' }])
+    })
+
+    it('never leaks another customer\'s resources', async () => {
+      const all = await app.inject({ method: 'GET', url: `/customer/${customerId}/resources`, headers: AUTH })
+      const ids = all.json().data.locations.map((l: { _id: string }) => l._id).sort()
+      expect(ids).toEqual(['loc-1', 'loc-2'])
+
+      // Asking for a tenant outside the customer yields nothing, not the
+      // tenant's data.
+      const foreign = await app.inject({
+        method: 'GET',
+        url: `/customer/${customerId}/resources?tenantId=tenant-x`,
+        headers: AUTH
+      })
+      expect(foreign.json().data.tenants).toEqual([])
+      expect(foreign.json().data.locations).toEqual([])
+    })
+
+    it('returns 404 for an unknown customer', async () => {
+      const res = await app.inject({ method: 'GET', url: '/customer/unknown-id/resources', headers: AUTH })
+      expect(res.statusCode).toBe(404)
+    })
+  })
+
   it('GET /customer/:id returns billing with an active subscription', async () => {
     const res = await app.inject({ method: 'GET', url: `/customer/${customerId}`, headers: AUTH })
     expect(res.statusCode).toBe(200)
     expect(res.json().data.billing.subscriptionStatus).toBe('active')
     expect(res.json().data.billing.plan).toBe('enterprise')
+  })
+
+  // library.tsx:403/421 saves the whole custom-device-type list through this
+  // route; the schema used to accept only `name`, so zod stripped the list,
+  // the handler found nothing to update, and the user got a 200 for a
+  // silently discarded save.
+  it('PATCH /customer/:id persists customDeviceTypes', async () => {
+    const customDeviceTypes = [
+      { id: 'cdt-1', name: 'Blade Server', prefix: 'BS' },
+      { id: 'cdt-2', name: 'Media Converter', prefix: 'MC' }
+    ]
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/customer/${customerId}`,
+      headers: AUTH,
+      payload: { customDeviceTypes }
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().data.customDeviceTypes).toEqual(customDeviceTypes)
+
+    // Persisted, not merely echoed.
+    const reread = await app.inject({ method: 'GET', url: `/customer/${customerId}`, headers: AUTH })
+    expect(reread.json().data.customDeviceTypes).toEqual(customDeviceTypes)
+  })
+
+  // library.tsx:294
+  it('PATCH /customer/:id persists standardDeviceTypePrefixes', async () => {
+    const standardDeviceTypePrefixes = { rack: 'RK', switch: 'SW' }
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/customer/${customerId}`,
+      headers: AUTH,
+      payload: { standardDeviceTypePrefixes }
+    })
+    expect(res.statusCode).toBe(200)
+
+    const reread = await app.inject({ method: 'GET', url: `/customer/${customerId}`, headers: AUTH })
+    expect(reread.json().data.standardDeviceTypePrefixes).toEqual(standardDeviceTypePrefixes)
+  })
+
+  it('PATCH /customer/:id rejects an unrecognized field rather than dropping it', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/customer/${customerId}`,
+      headers: AUTH,
+      payload: { notAField: 'x' }
+    })
+    expect(res.statusCode).toBe(400)
   })
 
   it('PATCH /customer/:id updates name', async () => {
