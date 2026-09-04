@@ -28,7 +28,7 @@ function rowToDoc(row: Record<string, unknown>, columns: ColumnDef[]): Record<st
   const doc: Record<string, unknown> = { _id: row.id, id: row.id }
   for (const col of columns) {
     const raw = row[col.db]
-    doc[col.api] = col.json ? (raw ? JSON.parse(raw as string) : undefined) : raw
+    doc[col.api] = col.json ? (raw != null ? JSON.parse(raw as string) : undefined) : raw
   }
   return doc
 }
@@ -123,9 +123,13 @@ export function registerCrudRoutes(
         const result = db.prepare(sql).run(...params)
         if (result.changes === 0) throw notFound(table)
       }
-      const updated = db.prepare(`SELECT ${allCols.join(', ')} FROM ${table} WHERE id = ?`).get(id) as
-        | Record<string, unknown>
-        | undefined
+      let selectSql = `SELECT ${allCols.join(', ')} FROM ${table} WHERE id = ?`
+      const selectParams: unknown[] = [id]
+      if (scope) {
+        selectSql += ` AND ${scope.column} = ?`
+        selectParams.push(scopeValue(req))
+      }
+      const updated = db.prepare(selectSql).get(...selectParams) as Record<string, unknown> | undefined
       if (!updated) throw notFound(table)
       return { data: rowToDoc(updated, columns) }
     })

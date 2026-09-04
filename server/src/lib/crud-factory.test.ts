@@ -62,3 +62,87 @@ describe('registerCrudRoutes', () => {
     expect(res.statusCode).toBe(404)
   })
 })
+
+describe('registerCrudRoutes (scoped)', () => {
+  let db: ReturnType<typeof openDb>
+  let app: ReturnType<typeof Fastify>
+
+  beforeEach(() => {
+    db = openDb(':memory:')
+    app = Fastify()
+    app.setErrorHandler((err: any, _req, reply) => reply.status(err.status ?? 500).send({ error: { message: err.message } }))
+    registerCrudRoutes(app, db, '/tenant/:tenantId/location', {
+      table: 'locations',
+      columns: [
+        { db: 'name', api: 'name' },
+        { db: 'address', api: 'address' },
+        { db: 'city', api: 'city' },
+        { db: 'country', api: 'country' }
+      ],
+      scope: { column: 'tenant_id', param: 'tenantId' },
+      sortableColumns: ['name'],
+      defaultSort: 'name'
+    })
+  })
+
+  it('supports create, list, get, patch, delete within a scope, and hides docs from other scopes', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/tenant/tenant-a/location',
+      payload: { name: 'HQ' }
+    })
+    expect(created.statusCode).toBe(200)
+    const doc = created.json().data
+    expect(doc.name).toBe('HQ')
+
+    const listedA = await app.inject({ method: 'GET', url: '/tenant/tenant-a/location' })
+    expect(listedA.json().data.docs).toHaveLength(1)
+
+    const listedB = await app.inject({ method: 'GET', url: '/tenant/tenant-b/location' })
+    expect(listedB.json().data.docs).toHaveLength(0)
+
+    const gotA = await app.inject({ method: 'GET', url: `/tenant/tenant-a/location/${doc._id}` })
+    expect(gotA.statusCode).toBe(200)
+    expect(gotA.json().data.name).toBe('HQ')
+
+    const gotB = await app.inject({ method: 'GET', url: `/tenant/tenant-b/location/${doc._id}` })
+    expect(gotB.statusCode).toBe(404)
+
+    const patchedA = await app.inject({
+      method: 'PATCH',
+      url: `/tenant/tenant-a/location/${doc._id}`,
+      payload: { name: 'HQ UPDATED' }
+    })
+    expect(patchedA.statusCode).toBe(200)
+    expect(patchedA.json().data.name).toBe('HQ UPDATED')
+
+    const deletedB = await app.inject({ method: 'DELETE', url: `/tenant/tenant-b/location/${doc._id}` })
+    expect(deletedB.statusCode).toBe(404)
+
+    const deletedA = await app.inject({ method: 'DELETE', url: `/tenant/tenant-a/location/${doc._id}` })
+    expect(deletedA.json()).toEqual({ success: true })
+  })
+
+  it('PATCH with a no-op body does not leak another scope\'s document (404, not 200)', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/tenant/tenant-a/location',
+      payload: { name: 'HQ' }
+    })
+    const doc = created.json().data
+
+    // Empty body -> docToRow produces zero matching keys -> UPDATE (and its scope check) is skipped
+    // entirely, falling through to the re-fetch SELECT. That SELECT must still be scoped.
+    const patchedFromWrongScope = await app.inject({
+      method: 'PATCH',
+      url: `/tenant/tenant-b/location/${doc._id}`,
+      payload: {}
+    })
+    expect(patchedFromWrongScope.statusCode).toBe(404)
+
+    // Sanity: the document is untouched and still visible under its real scope.
+    const stillThere = await app.inject({ method: 'GET', url: `/tenant/tenant-a/location/${doc._id}` })
+    expect(stillThere.statusCode).toBe(200)
+    expect(stillThere.json().data.name).toBe('HQ')
+  })
+})
