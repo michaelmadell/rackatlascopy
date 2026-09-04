@@ -1,11 +1,25 @@
 import Fastify, { FastifyInstance } from 'fastify'
+import cors from '@fastify/cors'
+import multipart from '@fastify/multipart'
 import { ZodError } from 'zod'
+import type Database from 'better-sqlite3'
 import { ApiError } from './lib/errors'
+import { registerAuthRoutes } from './auth/routes'
 
-export function buildApp(): FastifyInstance {
+export interface BuildAppOptions {
+  db: Database.Database
+  jwtSecret: string
+  corsOrigin?: string
+}
+
+export function buildApp(opts: BuildAppOptions): FastifyInstance {
   const app = Fastify({ logger: true })
 
+  app.register(cors, { origin: opts.corsOrigin ?? 'http://localhost:5178' })
+  app.register(multipart)
+
   app.get('/health', async () => ({ status: 'ok' }))
+  registerAuthRoutes(app, opts.db, opts.jwtSecret)
 
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof ApiError) {
