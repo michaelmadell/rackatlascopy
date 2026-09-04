@@ -75,6 +75,7 @@ export function registerLocationRoutes(app: FastifyInstance, db: Database.Databa
     const insert = db.prepare(
       `INSERT INTO rooms (id, tenant_id, floor_id, name, label, color, polygon_json) VALUES (?, ?, ?, ?, ?, ?, ?)`
     )
+    const select = db.prepare('SELECT * FROM rooms WHERE id = ? AND tenant_id = ?')
     const created = rooms.map((room) => {
       const id = randomUUID()
       insert.run(
@@ -86,7 +87,20 @@ export function registerLocationRoutes(app: FastifyInstance, db: Database.Databa
         room.color ?? null,
         JSON.stringify(room.polygon ?? [])
       )
-      return { _id: id, id, ...room }
+      // Build the response from the row actually persisted, not the raw request
+      // body — the body may carry extraneous or spoofed fields (e.g. a fake
+      // tenantId) that must never be echoed back as if they were saved.
+      const row = select.get(id, tenantId) as any
+      return {
+        _id: row.id,
+        id: row.id,
+        tenantId: row.tenant_id,
+        floorId: row.floor_id,
+        name: row.name,
+        label: row.label,
+        color: row.color,
+        polygon: row.polygon_json ? JSON.parse(row.polygon_json) : []
+      }
     })
     return { data: created }
   })
