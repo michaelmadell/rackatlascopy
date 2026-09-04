@@ -11,6 +11,7 @@ import { registerUserRoutes } from './routes/user'
 import { registerCustomerRoutes } from './routes/customer'
 import { registerLocationRoutes } from './routes/location'
 import { registerDeviceRoutes } from './routes/device'
+import { registerDeviceConnectionRoutes } from './routes/device-connection'
 
 export interface BuildAppOptions {
   db: Database.Database
@@ -34,6 +35,7 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
     registerCustomerRoutes(protectedRoutes, opts.db)
     registerLocationRoutes(protectedRoutes, opts.db)
     registerDeviceRoutes(protectedRoutes, opts.db)
+    registerDeviceConnectionRoutes(protectedRoutes, opts.db)
   })
 
   app.setErrorHandler((err, _req, reply) => {
