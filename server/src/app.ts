@@ -9,6 +9,7 @@ import { createAuthHook } from './auth/middleware'
 import { registerTenantRoutes } from './routes/tenant'
 import { registerUserRoutes } from './routes/user'
 import { registerCustomerRoutes } from './routes/customer'
+import { registerLocationRoutes } from './routes/location'
 
 export interface BuildAppOptions {
   db: Database.Database
@@ -30,6 +31,7 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
     registerTenantRoutes(protectedRoutes, opts.db)
     registerUserRoutes(protectedRoutes, opts.db)
     registerCustomerRoutes(protectedRoutes, opts.db)
+    registerLocationRoutes(protectedRoutes, opts.db)
   })
 
   app.setErrorHandler((err, _req, reply) => {
