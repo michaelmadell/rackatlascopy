@@ -25,6 +25,54 @@ describe('user routes', () => {
     app = buildApp({ db, jwtSecret: SECRET })
   })
 
+  it('GET /user lists users scoped to the caller\'s own customer', async () => {
+    const otherCustomerId = 'cust-other'
+    db.prepare(`INSERT INTO customers (id, name, billing_json) VALUES (?, ?, ?)`).run(
+      otherCustomerId,
+      'Other Org',
+      '{}'
+    )
+    db.prepare(
+      `INSERT INTO users (id, email, password_hash, name, role, is_customer_admin, customer_id, permissions_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(randomUUID(), 'stranger@example.com', bcrypt.hashSync('x', 10), 'Stranger', 'admin', 1, otherCustomerId, '[]')
+
+    const res = await app.inject({ method: 'GET', url: '/user', headers: AUTH })
+    expect(res.statusCode).toBe(200)
+    const emails = res.json().data.docs.map((d: any) => d.email)
+    expect(emails).toContain('admin@example.com')
+    expect(emails).not.toContain('stranger@example.com')
+    expect(res.json().data.totalDocs).toBe(1)
+  })
+
+  it('GET /user?tenantId=... narrows to admins and users with a permission on that tenant', async () => {
+    const memberWithAccess = randomUUID()
+    db.prepare(
+      `INSERT INTO users (id, email, password_hash, name, role, is_customer_admin, customer_id, permissions_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      memberWithAccess,
+      'member-with-access@example.com',
+      bcrypt.hashSync('x', 10),
+      'Member',
+      'member',
+      0,
+      'cust-amulet',
+      JSON.stringify([{ resourceType: 'tenant', resourceId: 'tenant-1', role: 'member' }])
+    )
+    db.prepare(
+      `INSERT INTO users (id, email, password_hash, name, role, is_customer_admin, customer_id, permissions_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(randomUUID(), 'no-access@example.com', bcrypt.hashSync('x', 10), 'NoAccess', 'member', 0, 'cust-amulet', '[]')
+
+    const res = await app.inject({ method: 'GET', url: '/user?tenantId=tenant-1', headers: AUTH })
+    expect(res.statusCode).toBe(200)
+    const emails = res.json().data.docs.map((d: any) => d.email)
+    expect(emails).toContain('admin@example.com') // customer admin sees every tenant
+    expect(emails).toContain('member-with-access@example.com')
+    expect(emails).not.toContain('no-access@example.com')
+  })
+
   it('GET /user/self returns the authenticated user', async () => {
     const res = await app.inject({ method: 'GET', url: '/user/self', headers: AUTH })
     expect(res.statusCode).toBe(200)

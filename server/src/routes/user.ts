@@ -4,6 +4,7 @@ import bcrypt from 'bcrypt'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { notFound } from '../lib/errors'
+import { paginate } from '../lib/pagination'
 
 function rowToUserDoc(row: any): Record<string, unknown> {
   return {
@@ -37,6 +38,34 @@ const patchUserBody = z.object({
 })
 
 export function registerUserRoutes(app: FastifyInstance, db: Database.Database): void {
+  // List users. Always scoped to the caller's own customer (org) — a plain
+  // /user list has no customerId in the query, so scoping it to req.user's
+  // own org is what stands between this and leaking every org's users to
+  // every caller. `tenantId`, when present, additionally narrows to users
+  // who are that org's admin or hold an explicit permission on that tenant
+  // (matches the permissions_json shape seed.ts and /user POST already
+  // write). `select`/unrecognized params are accepted and ignored per this
+  // backend's documented no-field-projection stance.
+  app.get('/user', async (req) => {
+    const query = req.query as Record<string, string>
+    const page = Number(query.page) || 1
+    const limit = Number(query.limit) || 100
+    const customerId = req.user!.customerId
+
+    const rows = db.prepare('SELECT * FROM users WHERE customer_id = ?').all(customerId) as any[]
+    const filtered = query.tenantId
+      ? rows.filter((row) => {
+          if (row.is_customer_admin) return true
+          const permissions = row.permissions_json ? JSON.parse(row.permissions_json) : []
+          return permissions.some((p: { resourceType?: string; resourceId?: string }) => p.resourceId === query.tenantId)
+        })
+      : rows
+
+    const docs = filtered.map(rowToUserDoc)
+    const { docs: pageDocs, totalDocs, totalPages } = paginate(docs, page, limit)
+    return { data: { docs: pageDocs, totalDocs, totalPages } }
+  })
+
   app.get('/user/self', async (req) => {
     const row = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user!.id) as any
     if (!row) throw notFound('user')
