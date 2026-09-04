@@ -10,6 +10,7 @@ import { registerTenantRoutes } from './routes/tenant'
 import { registerUserRoutes } from './routes/user'
 import { registerCustomerRoutes } from './routes/customer'
 import { registerLocationRoutes } from './routes/location'
+import { registerDeviceRoutes } from './routes/device'
 
 export interface BuildAppOptions {
   db: Database.Database
@@ -32,6 +33,7 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
     registerUserRoutes(protectedRoutes, opts.db)
     registerCustomerRoutes(protectedRoutes, opts.db)
     registerLocationRoutes(protectedRoutes, opts.db)
+    registerDeviceRoutes(protectedRoutes, opts.db)
   })
 
   app.setErrorHandler((err, _req, reply) => {
