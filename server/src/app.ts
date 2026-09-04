@@ -7,6 +7,7 @@ import { ApiError } from './lib/errors'
 import { registerAuthRoutes } from './auth/routes'
 import { createAuthHook } from './auth/middleware'
 import { registerTenantRoutes } from './routes/tenant'
+import { registerUserRoutes } from './routes/user'
 
 export interface BuildAppOptions {
   db: Database.Database
@@ -26,6 +27,7 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
   app.register(async (protectedRoutes) => {
     protectedRoutes.addHook('preHandler', createAuthHook(opts.db, opts.jwtSecret))
     registerTenantRoutes(protectedRoutes, opts.db)
+    registerUserRoutes(protectedRoutes, opts.db)
   })
 
   app.setErrorHandler((err, _req, reply) => {
