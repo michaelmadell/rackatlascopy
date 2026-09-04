@@ -5,6 +5,8 @@ import { ZodError } from 'zod'
 import type Database from 'better-sqlite3'
 import { ApiError } from './lib/errors'
 import { registerAuthRoutes } from './auth/routes'
+import { createAuthHook } from './auth/middleware'
+import { registerTenantRoutes } from './routes/tenant'
 
 export interface BuildAppOptions {
   db: Database.Database
@@ -20,6 +22,11 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
 
   app.get('/health', async () => ({ status: 'ok' }))
   registerAuthRoutes(app, opts.db, opts.jwtSecret)
+
+  app.register(async (protectedRoutes) => {
+    protectedRoutes.addHook('preHandler', createAuthHook(opts.db, opts.jwtSecret))
+    registerTenantRoutes(protectedRoutes, opts.db)
+  })
 
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof ApiError) {
