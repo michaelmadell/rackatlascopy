@@ -33,7 +33,10 @@ export function createAuthHook(db: Database.Database, jwtSecret: string) {
     } catch {
       // Not a JWT we issued (e.g. the Auth0 shim's static 'mock-dev-access-token') —
       // any non-empty bearer token falls back to the single seeded dev session.
-      const row = db.prepare('SELECT id FROM users LIMIT 1').get() as { id: string } | undefined
+      // ORDER BY rowid is required for determinism: without it SQLite may satisfy
+      // this query from the TEXT primary key's index (UUID lexicographic order)
+      // instead of insertion order, making the "first" user unpredictable.
+      const row = db.prepare('SELECT id FROM users ORDER BY rowid LIMIT 1').get() as { id: string } | undefined
       userId = row?.id
     }
 
