@@ -1,5 +1,4 @@
 import { Dialog, DialogContent, Button } from '@/patchdocs-ui';
-import { TbX } from 'react-icons/tb';
 import { getDeviceVisual } from './device-icon';
 
 /**
@@ -30,13 +29,8 @@ export default function AddDeviceModal({
 
   return (
     <Dialog open={open} onOpenChange={(next: boolean) => !next && onClose()}>
-      <DialogContent className="max-w-md">
-        <div className="mb-1 flex items-center justify-between">
-          <h2 className="text-base font-bold text-[#f4f4f5]">Add device</h2>
-          <button type="button" onClick={onClose} className="text-[#a1a1aa] hover:text-[#f4f4f5]">
-            <TbX className="size-4" />
-          </button>
-        </div>
+      <DialogContent className="max-w-md sm:max-w-md">
+        <h2 className="mb-1 pr-8 text-base font-bold text-[#f4f4f5]">Add device</h2>
         <p className="mb-4 text-xs text-[#71717a]">{device.type || 'Device'}</p>
 
         <div className="mb-4 space-y-2">

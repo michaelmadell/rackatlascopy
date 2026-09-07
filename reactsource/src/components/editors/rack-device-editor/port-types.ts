@@ -58,6 +58,9 @@ export interface FaceElement {
   id: string;
   kind: 'port' | 'text' | 'icon';
   side: Side;
+  /** Which U row on the face this sits in — 0-indexed from the top of the
+   *  device (a 1U device has only row 0; a 2U device has rows 0 and 1). */
+  row: number;
   col: number;
   /** Ports sharing a groupId share idPrefix/connectorType/countingDirection and renumber together. */
   groupId?: string;

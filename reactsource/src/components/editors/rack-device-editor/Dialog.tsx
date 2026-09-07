@@ -12,7 +12,6 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/patchdocs-ui';
-import { TbX } from 'react-icons/tb';
 import { useAppStore } from '@/lib/app-store';
 import { useAuthenticatedApi } from '@/hooks/useAuthenticatedApi';
 import { STANDARD_DEVICE_TYPES } from '@/lib/device-constants';
@@ -92,15 +91,15 @@ export default function RackDeviceEditorDialog({
   const handleDragEnd = (event: DragEndEvent) => {
     if (readOnly || !event.over) return;
     const dropData = event.active.data.current as { kind: 'port' | 'text' | 'icon'; portType?: string };
-    const { side: dropSide, col } = event.over.data.current as { side: Side; col: number };
+    const { side: dropSide, row, col } = event.over.data.current as { side: Side; row: number; col: number };
 
     const id = crypto.randomUUID();
     let next: FaceElement;
     if (dropData.kind === 'port') {
-      const group = resolveGroupForDrop(dropData.portType!, dropSide, col, elements);
-      next = { id, kind: 'port', side: dropSide, col, portType: dropData.portType, ...group };
+      const group = resolveGroupForDrop(dropData.portType!, dropSide, row, col, elements);
+      next = { id, kind: 'port', side: dropSide, row, col, portType: dropData.portType, ...group };
     } else {
-      next = { id, kind: dropData.kind, side: dropSide, col };
+      next = { id, kind: dropData.kind, side: dropSide, row, col };
     }
     setElements((prev) => [...prev, next]);
     setSelectedId(id);
@@ -108,6 +107,47 @@ export default function RackDeviceEditorDialog({
 
   const updateGroup = (groupId: string, patch: Partial<FaceElement>) => {
     setElements((prev) => prev.map((e) => (e.kind === 'port' && e.groupId === groupId ? { ...e, ...patch } : e)));
+  };
+
+  // Drag the handle on a group's rightmost port to extend/shrink it —
+  // adds ports filling in up to newMaxCol (stopping at whatever's already
+  // occupying a cell), or drops any past it when shrinking. The left edge
+  // (minCol) never moves; this is a right-edge-only handle.
+  const resizeGroup = (groupId: string, newMaxCol: number) => {
+    setElements((prev) => {
+      const group = prev.filter((e) => e.kind === 'port' && e.groupId === groupId);
+      if (!group.length) return prev;
+      const base = group[0];
+      const minCol = Math.min(...group.map((e) => e.col));
+      if (newMaxCol < minCol) return prev;
+      const currentCols = new Set(group.map((e) => e.col));
+      const targetCols: number[] = [];
+      for (let c = minCol; c <= newMaxCol; c++) targetCols.push(c);
+      const targetSet = new Set(targetCols);
+
+      let next = prev.filter((e) => !(e.kind === 'port' && e.groupId === groupId && !targetSet.has(e.col)));
+      for (const c of targetCols) {
+        if (currentCols.has(c)) continue;
+        const occupied = prev.some((e) => e.side === base.side && e.row === base.row && e.col === c && e.groupId !== groupId);
+        if (occupied) break;
+        next = [
+          ...next,
+          {
+            id: crypto.randomUUID(),
+            kind: 'port',
+            side: base.side,
+            row: base.row,
+            col: c,
+            portType: base.portType,
+            groupId,
+            idPrefix: base.idPrefix,
+            connectorType: base.connectorType,
+            countingDirection: base.countingDirection
+          }
+        ];
+      }
+      return next;
+    });
   };
 
   const updateValue = (id: string, value: string) => {
@@ -148,13 +188,16 @@ export default function RackDeviceEditorDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-base font-bold text-[#f4f4f5]">Rack Device Editor</h2>
-          <button type="button" onClick={() => onOpenChange(false)} className="text-[#a1a1aa] hover:text-[#f4f4f5]">
-            <TbX className="size-4" />
-          </button>
-        </div>
+      {/* max-w-4xl alone loses to the component's own default className,
+       * which bakes in `sm:max-w-sm` (see src/patchdocs-ui/index.js's
+       * DialogContent) — twMerge only dedupes classes in the same
+       * responsive-variant slot, so an unprefixed override never touches a
+       * `sm:`-prefixed default. Overriding that exact slot is what wins. */}
+      <DialogContent className="max-w-4xl sm:max-w-4xl">
+        {/* DialogContent already renders its own top-2 right-2 close button
+         * (showCloseButton defaults to true) — a second one here was a
+         * literal duplicate. pr-8 keeps the title clear of it. */}
+        <h2 className="mb-4 pr-8 text-base font-bold text-[#f4f4f5]">Rack Device Editor</h2>
 
         <div className="mb-4 grid grid-cols-4 gap-3">
           <div>
@@ -218,9 +261,11 @@ export default function RackDeviceEditorDialog({
           <div className="mb-4 overflow-x-auto">
             <DeviceFaceGrid
               side={side}
+              rows={rackUnits}
               elements={elements}
               selectedId={selectedId}
               onSelect={setSelectedId}
+              onResizeGroup={resizeGroup}
               readOnly={readOnly}
             />
           </div>

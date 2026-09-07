@@ -15,17 +15,23 @@ export function computePortNumber(el: FaceElement, all: FaceElement[]): string {
   return `${el.idPrefix || ''}${num}`;
 }
 
-/** Where a dropped port type lands: joins an adjacent same-type, same-side
- *  port's group (sharing its settings) if one sits immediately left or
- *  right of the target column, otherwise starts a fresh group. */
+/** Where a dropped port type lands: joins an adjacent same-type, same-side,
+ *  same-row port's group (sharing its settings) if one sits immediately
+ *  left or right of the target column, otherwise starts a fresh group. */
 export function resolveGroupForDrop(
   portType: string,
   side: Side,
+  row: number,
   col: number,
   existing: FaceElement[]
 ): { groupId: string; idPrefix: string; connectorType: string; countingDirection: FaceElement['countingDirection'] } {
   const neighbor = existing.find(
-    (p) => p.kind === 'port' && p.side === side && p.portType === portType && (p.col === col - 1 || p.col === col + 1)
+    (p) =>
+      p.kind === 'port' &&
+      p.side === side &&
+      p.row === row &&
+      p.portType === portType &&
+      (p.col === col - 1 || p.col === col + 1)
   );
   if (neighbor) {
     return {
