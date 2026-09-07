@@ -17,7 +17,7 @@ import { useAuthenticatedApi } from '@/hooks/useAuthenticatedApi';
 import { STANDARD_DEVICE_TYPES } from '@/lib/device-constants';
 import type { CustomRackDevice } from '@/types';
 import PortToolbar from './PortToolbar';
-import DeviceFaceGrid from './DeviceFaceGrid';
+import DeviceFaceGrid, { SUB_ROW_H } from './DeviceFaceGrid';
 import PortSettingsPanel from './PortSettingsPanel';
 import { resolveGroupForDrop, computePortNumber } from './layout-utils';
 import { PORT_COLUMNS, SUB_ROWS_PER_U, type FaceElement, type Side } from './port-types';
@@ -91,15 +91,15 @@ export default function RackDeviceEditorDialog({
   const handleDragEnd = (event: DragEndEvent) => {
     if (readOnly || !event.over) return;
     const dropData = event.active.data.current as { kind: 'port' | 'text' | 'icon'; portType?: string };
-    const { side: dropSide, row, col } = event.over.data.current as { side: Side; row: number; col: number };
+    const { side: dropSide, col } = event.over.data.current as { side: Side; col: number };
 
     const id = crypto.randomUUID();
     let next: FaceElement;
     if (dropData.kind === 'port') {
-      const group = resolveGroupForDrop(dropData.portType!, dropSide, row, col, elements);
-      next = { id, kind: 'port', side: dropSide, row, col, portType: dropData.portType, ...group };
+      const group = resolveGroupForDrop(dropData.portType!, dropSide, col, elements);
+      next = { id, kind: 'port', side: dropSide, col, heightPx: SUB_ROW_H, portType: dropData.portType, ...group };
     } else {
-      next = { id, kind: dropData.kind, side: dropSide, row, col };
+      next = { id, kind: dropData.kind, side: dropSide, col, heightPx: SUB_ROW_H };
     }
     setElements((prev) => [...prev, next]);
     setSelectedId(id);
@@ -128,7 +128,7 @@ export default function RackDeviceEditorDialog({
       let next = prev.filter((e) => !(e.kind === 'port' && e.groupId === groupId && !targetSet.has(e.col)));
       for (const c of targetCols) {
         if (currentCols.has(c)) continue;
-        const occupied = prev.some((e) => e.side === base.side && e.row === base.row && e.col === c && e.groupId !== groupId);
+        const occupied = prev.some((e) => e.side === base.side && e.col === c && e.groupId !== groupId);
         if (occupied) break;
         next = [
           ...next,
@@ -136,8 +136,8 @@ export default function RackDeviceEditorDialog({
             id: crypto.randomUUID(),
             kind: 'port',
             side: base.side,
-            row: base.row,
             col: c,
+            heightPx: base.heightPx,
             portType: base.portType,
             groupId,
             idPrefix: base.idPrefix,
@@ -150,31 +150,19 @@ export default function RackDeviceEditorDialog({
     });
   };
 
-  // Drag the handle on a block's bottom edge to grow/shrink how many
-  // sub-rows tall it is — a freshly-dropped port only fills the one
-  // sub-row it landed on; this is how it spans the rest of its U (or
-  // further, into the U below). Applies to every port sharing this block
-  // (its whole horizontal group), not just the one under the cursor —
-  // otherwise a group could end up with mismatched member heights and the
-  // single spanning block DeviceFaceGrid renders for it would have
-  // nothing coherent to size itself to.
-  const resizeRowSpan = (memberIds: string[], newRowSpan: number) => {
+  // Drag the handle on a block's bottom edge to grow/shrink its visual
+  // height — a freshly-dropped port only fills one sub-row's worth by
+  // default; this is how it fills more of its column's full height (its
+  // grid placement always spans the whole thing — see FaceElement's
+  // heightPx doc comment). Applies to every port sharing this block (its
+  // whole horizontal group), not just the one under the cursor, so a
+  // group can't end up with mismatched member heights the single
+  // spanning block DeviceFaceGrid renders for it has no way to show.
+  const resizeHeight = (memberIds: string[], newHeightPx: number) => {
     setElements((prev) => {
       const members = prev.filter((e) => memberIds.includes(e.id));
       if (!members.length) return prev;
-      const base = members[0];
-      const clamped = Math.max(1, newRowSpan);
-      const memberCols = new Set(members.map((m) => m.col));
-      const occupied = prev.some(
-        (e) =>
-          !memberIds.includes(e.id) &&
-          e.side === base.side &&
-          memberCols.has(e.col) &&
-          e.row < base.row + clamped &&
-          e.row + (e.rowSpan || 1) > base.row
-      );
-      if (occupied) return prev;
-      return prev.map((e) => (memberIds.includes(e.id) ? { ...e, rowSpan: clamped } : e));
+      return prev.map((e) => (memberIds.includes(e.id) ? { ...e, heightPx: newHeightPx } : e));
     });
   };
 
@@ -294,7 +282,7 @@ export default function RackDeviceEditorDialog({
               selectedId={selectedId}
               onSelect={setSelectedId}
               onResizeGroup={resizeGroup}
-              onResizeRowSpan={resizeRowSpan}
+              onResizeHeight={resizeHeight}
               readOnly={readOnly}
             />
           </div>

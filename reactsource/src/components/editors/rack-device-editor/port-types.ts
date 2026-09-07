@@ -58,16 +58,19 @@ export interface FaceElement {
   id: string;
   kind: 'port' | 'text' | 'icon';
   side: Side;
-  /** Which sub-row this sits in, 0-indexed from the top — each U is 2
-   *  sub-rows (verified against the real editor: a cell's height doubles
-   *  1U→2U, from a 2-sub-row-tall slot to a 4-sub-row-tall one), so a 1U
-   *  device has sub-rows 0-1, a 2U device 0-3. */
-  row: number;
   col: number;
-  /** How many sub-rows tall this element is (default 1). A freshly-dropped
-   *  port only fills the sub-row it landed on; dragging its bottom-edge
-   *  handle grows it into the sub-row(s) below. */
-  rowSpan?: number;
+  /** Visual height in px. Verified against the real editor's own markup
+   *  for a placed port: its grid placement is *always* `grid-row: 1 / -1`
+   *  (the full row-track span of the device's height, however many
+   *  sub-rows that is) with `align-self: center` — a port never actually
+   *  "lives" in one specific row. What makes it look like it only fills
+   *  the sub-row it landed on is this explicit height (one sub-row by
+   *  default) centered within that full span; dragging the bottom handle
+   *  grows this height, up to the full available span, rather than moving
+   *  the element to cover more grid rows. One column can only ever hold
+   *  one port (its grid placement always claims the whole column's row
+   *  range), so horizontal grouping only needs to check column adjacency. */
+  heightPx?: number;
   /** Ports sharing a groupId share idPrefix/connectorType/countingDirection and renumber together. */
   groupId?: string;
   portType?: string;
