@@ -8,16 +8,17 @@ import { PORT_TYPES } from './port-types';
  *  column). Drop one onto DeviceFaceGrid to place it. */
 export default function PortToolbar() {
   return (
-    <div className="flex items-start gap-3 rounded-lg border border-[#27272a] p-3" style={{ backgroundColor: '#18181b' }}>
+    // Real: `bg-background rounded-lg border border-border px-2 py-3
+    // max-w-142` — a distinct, darker card floating inside Dialog.tsx's
+    // outer `bg-muted` toolbar-row wrapper (px-2/py-3 rather than a flat
+    // p-3, and a capped width so it doesn't stretch to fill the row).
+    <div className="flex items-start gap-3 rounded-lg border border-[#27272a] px-2 py-3" style={{ backgroundColor: '#09090b', maxWidth: 568 }}>
       <VerticalLabel>Port Types</VerticalLabel>
-      {/* Fixed-width flex-wrap rather than a grid-cols-N utility class, and
-       *  inline backgroundColor above rather than bg-[#hex] — this app's
-       *  styles.css is a frozen, pre-extracted snapshot of the real app's
-       *  compiled Tailwind CSS (no @tailwind/@import directive, so nothing
-       *  here regenerates at build time); grid-cols-5 and arbitrary bg-[...]
-       *  values were never used by the real app's original source, so those
-       *  classes have no rule and silently no-op. Sticking to flex/inline
-       *  styles for anything not already frozen in keeps this reliable. */}
+      {/* Fixed-width flex-wrap rather than a grid-cols-N utility class —
+       *  Tailwind JIT is live now (src/styles.css imports tailwindcss/theme
+       *  + utilities), so grid-cols-5 would work, but flex-wrap at this
+       *  fixed pixel width already reproduces the real chip-wrapping
+       *  layout with less to keep in sync if PORT_TYPES grows. */}
       <div className="flex flex-wrap gap-1.5" style={{ width: 420 }}>
         {PORT_TYPES.map((pt) => (
           <ToolbarChip key={pt.id} id={`toolbar-port-${pt.id}`} data={{ kind: 'port', portType: pt.id }} icon={pt.icon} label={pt.label} />

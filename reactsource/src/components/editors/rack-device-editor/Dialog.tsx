@@ -312,35 +312,43 @@ export default function RackDeviceEditorDialog({
         </div>
 
         <DndContext onDragEnd={handleDragEnd}>
-          <div className="mb-3 flex items-start justify-between gap-3">
-            {!readOnly ? <PortToolbar /> : <div />}
-            <div className="flex shrink-0 items-center gap-1 rounded-lg border border-[#27272a] p-1" style={{ backgroundColor: '#18181b' }}>
-              {(['front', 'back'] as const).map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setSide(s)}
-                  style={{ backgroundColor: side === s ? '#27272a' : undefined }}
-                  className={`px-3 py-1 rounded text-xs font-medium capitalize ${side === s ? 'text-[#f4f4f5]' : 'text-[#a1a1aa]'}`}
-                >
-                  {s}
-                </button>
-              ))}
+          {/* Real: toolbar row + canvas share one `p-4 bg-muted
+           * dark:bg-input/30 rounded-md space-y-6` card — not two separate
+           * flat elements. */}
+          <div className="mb-4 space-y-6 rounded-md p-4" style={{ backgroundColor: '#27272a' }}>
+            <div className="flex items-start justify-between gap-3">
+              {!readOnly ? <PortToolbar /> : <div />}
+              <div className="flex shrink-0 items-center gap-1 rounded-lg border border-[#3f3f46] p-1" style={{ backgroundColor: '#09090b' }}>
+                {(['front', 'back'] as const).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setSide(s)}
+                    // Real active state is an inverted pill
+                    // (bg-foreground text-background), not a subtle
+                    // same-tone highlight.
+                    style={{ backgroundColor: side === s ? '#f4f4f5' : undefined }}
+                    className={`px-3 py-1 rounded text-xs font-medium capitalize ${side === s ? 'text-[#09090b]' : 'text-[#a1a1aa]'}`}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
 
-          <div className="mb-4 overflow-x-auto">
-            <DeviceFaceGrid
-              side={side}
-              subRows={rackUnits * SUB_ROWS_PER_U}
-              elements={elements}
-              selectedId={selectedId}
-              onSelect={setSelectedId}
-              onResizeGroup={resizeGroup}
-              onResizeGroupVertical={(groupId, newMaxRow) => resizeGroupVertical(groupId, newMaxRow, rackUnits * SUB_ROWS_PER_U)}
-              onResizeElementSpan={(id, axis, newMax) => resizeElementSpan(id, axis, newMax, rackUnits * SUB_ROWS_PER_U)}
-              readOnly={readOnly}
-            />
+            <div className="overflow-x-auto">
+              <DeviceFaceGrid
+                side={side}
+                subRows={rackUnits * SUB_ROWS_PER_U}
+                elements={elements}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
+                onResizeGroup={resizeGroup}
+                onResizeGroupVertical={(groupId, newMaxRow) => resizeGroupVertical(groupId, newMaxRow, rackUnits * SUB_ROWS_PER_U)}
+                onResizeElementSpan={(id, axis, newMax) => resizeElementSpan(id, axis, newMax, rackUnits * SUB_ROWS_PER_U)}
+                readOnly={readOnly}
+              />
+            </div>
           </div>
 
           <div className="mb-4">
