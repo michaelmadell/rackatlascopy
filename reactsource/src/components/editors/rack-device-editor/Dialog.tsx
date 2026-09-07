@@ -263,13 +263,25 @@ export default function RackDeviceEditorDialog({
        * which bakes in `sm:max-w-sm` (see src/patchdocs-ui/index.js's
        * DialogContent) — twMerge only dedupes classes in the same
        * responsive-variant slot, so an unprefixed override never touches a
-       * `sm:`-prefixed default. Overriding that exact slot is what wins. */}
-      <DialogContent className="max-w-4xl sm:max-w-4xl">
+       * `sm:`-prefixed default. Overriding that exact slot is what wins.
+       * Real: `max-h-[calc(100vh-2rem)] grid-rows-[auto_1fr_auto]
+       * overflow-hidden` caps the dialog to the viewport and makes only
+       * the middle section scroll — DialogContent is already `grid`
+       * (its own default className), so title/scroll-region/footer below
+       * become the three rows directly; a tall device (many rack units,
+       * lots of ports) used to just grow the dialog past the viewport
+       * with no way to reach the footer buttons. */}
+      <DialogContent className="max-w-4xl sm:max-w-4xl max-h-[calc(100vh-2rem)] grid-rows-[auto_1fr_auto] overflow-hidden">
         {/* DialogContent already renders its own top-2 right-2 close button
          * (showCloseButton defaults to true) — a second one here was a
          * literal duplicate. pr-8 keeps the title clear of it. */}
-        <h2 className="mb-4 pr-8 text-base font-bold text-[#f4f4f5]">Rack Device Editor</h2>
+        <h2 className="pr-8 text-base font-bold text-[#f4f4f5]">Rack Device Editor</h2>
 
+        {/* min-h-0 is load-bearing: a grid row's default min-height is
+         * `auto` (≈ its content size), which would let this region grow
+         * past its 1fr share and defeat the height cap above instead of
+         * scrolling. */}
+        <div className="min-h-0 overflow-y-auto">
         <div className="mb-4 grid grid-cols-4 gap-3">
           <div>
             <Label>Name *</Label>
@@ -363,6 +375,7 @@ export default function RackDeviceEditorDialog({
             />
           </div>
         </DndContext>
+        </div>
 
         {/* Real footer bleeds to the dialog's edges as its own bordered bar
          * (bg-muted/50 -mx-4 -mb-4 rounded-b-xl border-t p-4), not a plain
