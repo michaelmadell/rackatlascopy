@@ -1,5 +1,15 @@
 <!doctype html>
-<html lang="en">
+<!-- class="dark" activates the .dark CSS-variable overrides (styles.css)
+     that the real shadcn/Radix component library (src/patchdocs-ui/index.js,
+     which Vite resolves ahead of the hand-written index.tsx shim) reads for
+     bg-background/text-foreground/etc. Without it those components default
+     to light mode's white background — invisible before Tailwind was wired
+     up (bg-background had no CSS at all, so it fell through to the dark
+     page behind it), but wrong now that it resolves. Every other surface
+     in this app is already dark via literal hex classes; this makes the
+     real component library consistent with that instead of a separate
+     light-mode toggle nobody asked for. -->
+<html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />

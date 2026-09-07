@@ -60,7 +60,14 @@ export const useAppStore = create<AppState>()(
       toggleSidebar: () => set({ showSidebar: !get().showSidebar }),
       showInfoSidebar: false,
       setShowInfoSidebar: (open: boolean) => set({ showInfoSidebar: open }),
-      theme: 'system',
+      // Every hand-styled surface in this app is dark-only (literal hex
+      // classes throughout, no light-mode design anywhere) — 'system' here
+      // meant a light-OS user got a real shadcn/Radix component (Dialog,
+      // Select, the "Custom Rack Devices" card, etc. — see
+      // src/patchdocs-ui/index.js, which Vite resolves ahead of the
+      // hand-written index.tsx shim) rendered in light mode's white
+      // background against dark chrome everywhere else.
+      theme: 'dark',
       setTheme: (theme: Theme) => set({ theme }),
       commandMenuOpen: false,
       setCommandMenuOpen: (open: boolean) => set({ commandMenuOpen: open }),
