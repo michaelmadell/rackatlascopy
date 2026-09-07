@@ -17,10 +17,58 @@ import { useAuthenticatedApi } from '@/hooks/useAuthenticatedApi';
 import { STANDARD_DEVICE_TYPES } from '@/lib/device-constants';
 import type { CustomRackDevice } from '@/types';
 import PortToolbar from './PortToolbar';
-import DeviceFaceGrid, { SUB_ROW_H } from './DeviceFaceGrid';
+import DeviceFaceGrid from './DeviceFaceGrid';
 import PortSettingsPanel from './PortSettingsPanel';
 import { resolveGroupForDrop, computePortNumber } from './layout-utils';
 import { PORT_COLUMNS, SUB_ROWS_PER_U, type FaceElement, type Side } from './port-types';
+
+/** Grows/shrinks a group to a new minCol..maxCol × minRow..maxRow rectangle
+ *  (one of the two bounds always equals the group's current one — the
+ *  horizontal handle only ever moves maxCol, the vertical handle only
+ *  ever moves maxRow), filling in a real FaceElement for every newly
+ *  covered cell and dropping any that fall outside the new rectangle.
+ *  Stops extending in a direction as soon as it would land on a cell a
+ *  *different* group already occupies. */
+function resizeGroupRect(
+  prev: FaceElement[],
+  groupId: string,
+  minCol: number,
+  maxCol: number,
+  minRow: number,
+  maxRow: number
+): FaceElement[] {
+  const group = prev.filter((e) => e.kind === 'port' && e.groupId === groupId);
+  if (!group.length) return prev;
+  const base = group[0];
+  const currentKeys = new Set(group.map((e) => `${e.row}:${e.col}`));
+  const targetCells: Array<[row: number, col: number]> = [];
+  for (let c = minCol; c <= maxCol; c++) for (let r = minRow; r <= maxRow; r++) targetCells.push([r, c]);
+  const targetKeys = new Set(targetCells.map(([r, c]) => `${r}:${c}`));
+
+  let next = prev.filter((e) => !(e.kind === 'port' && e.groupId === groupId && !targetKeys.has(`${e.row}:${e.col}`)));
+  for (const [r, c] of targetCells) {
+    const key = `${r}:${c}`;
+    if (currentKeys.has(key)) continue;
+    const occupied = prev.some((e) => e.side === base.side && e.row === r && e.col === c && e.groupId !== groupId);
+    if (occupied) continue;
+    next = [
+      ...next,
+      {
+        id: crypto.randomUUID(),
+        kind: 'port',
+        side: base.side,
+        row: r,
+        col: c,
+        portType: base.portType,
+        groupId,
+        idPrefix: base.idPrefix,
+        connectorType: base.connectorType,
+        countingDirection: base.countingDirection
+      }
+    ];
+  }
+  return next;
+}
 
 /**
  * Rack Device Editor — clone of app.patchdocs.io's Device Library "create
@@ -91,15 +139,15 @@ export default function RackDeviceEditorDialog({
   const handleDragEnd = (event: DragEndEvent) => {
     if (readOnly || !event.over) return;
     const dropData = event.active.data.current as { kind: 'port' | 'text' | 'icon'; portType?: string };
-    const { side: dropSide, col } = event.over.data.current as { side: Side; col: number };
+    const { side: dropSide, row, col } = event.over.data.current as { side: Side; row: number; col: number };
 
     const id = crypto.randomUUID();
     let next: FaceElement;
     if (dropData.kind === 'port') {
-      const group = resolveGroupForDrop(dropData.portType!, dropSide, col, elements);
-      next = { id, kind: 'port', side: dropSide, col, heightPx: SUB_ROW_H, portType: dropData.portType, ...group };
+      const group = resolveGroupForDrop(dropData.portType!, dropSide, row, col, elements);
+      next = { id, kind: 'port', side: dropSide, row, col, portType: dropData.portType, ...group };
     } else {
-      next = { id, kind: dropData.kind, side: dropSide, col, heightPx: SUB_ROW_H };
+      next = { id, kind: dropData.kind, side: dropSide, row, col };
     }
     setElements((prev) => [...prev, next]);
     setSelectedId(id);
@@ -109,60 +157,36 @@ export default function RackDeviceEditorDialog({
     setElements((prev) => prev.map((e) => (e.kind === 'port' && e.groupId === groupId ? { ...e, ...patch } : e)));
   };
 
-  // Drag the handle on a group's rightmost port to extend/shrink it —
-  // adds ports filling in up to newMaxCol (stopping at whatever's already
-  // occupying a cell), or drops any past it when shrinking. The left edge
-  // (minCol) never moves; this is a right-edge-only handle.
+  // Drag the handle on a group's rightmost column to extend/shrink it
+  // horizontally — adds a whole new column of ports (one per row the
+  // group already spans) up to newMaxCol, or drops whatever falls past it
+  // when shrinking. minCol and the row range never move; this is a
+  // right-edge-only handle.
   const resizeGroup = (groupId: string, newMaxCol: number) => {
     setElements((prev) => {
       const group = prev.filter((e) => e.kind === 'port' && e.groupId === groupId);
       if (!group.length) return prev;
-      const base = group[0];
       const minCol = Math.min(...group.map((e) => e.col));
+      const minRow = Math.min(...group.map((e) => e.row));
+      const maxRow = Math.max(...group.map((e) => e.row));
       newMaxCol = Math.max(minCol, Math.min(PORT_COLUMNS - 1, newMaxCol));
-      const currentCols = new Set(group.map((e) => e.col));
-      const targetCols: number[] = [];
-      for (let c = minCol; c <= newMaxCol; c++) targetCols.push(c);
-      const targetSet = new Set(targetCols);
-
-      let next = prev.filter((e) => !(e.kind === 'port' && e.groupId === groupId && !targetSet.has(e.col)));
-      for (const c of targetCols) {
-        if (currentCols.has(c)) continue;
-        const occupied = prev.some((e) => e.side === base.side && e.col === c && e.groupId !== groupId);
-        if (occupied) break;
-        next = [
-          ...next,
-          {
-            id: crypto.randomUUID(),
-            kind: 'port',
-            side: base.side,
-            col: c,
-            heightPx: base.heightPx,
-            portType: base.portType,
-            groupId,
-            idPrefix: base.idPrefix,
-            connectorType: base.connectorType,
-            countingDirection: base.countingDirection
-          }
-        ];
-      }
-      return next;
+      return resizeGroupRect(prev, groupId, minCol, newMaxCol, minRow, maxRow);
     });
   };
 
-  // Drag the handle on a block's bottom edge to grow/shrink its visual
-  // height — a freshly-dropped port only fills one sub-row's worth by
-  // default; this is how it fills more of its column's full height (its
-  // grid placement always spans the whole thing — see FaceElement's
-  // heightPx doc comment). Applies to every port sharing this block (its
-  // whole horizontal group), not just the one under the cursor, so a
-  // group can't end up with mismatched member heights the single
-  // spanning block DeviceFaceGrid renders for it has no way to show.
-  const resizeHeight = (memberIds: string[], newHeightPx: number) => {
+  // Drag the handle on a group's bottom row to extend/shrink it
+  // vertically — adds a whole new row of ports (one per column the group
+  // already spans) up to newMaxRow, or drops whatever falls past it when
+  // shrinking. minRow and the column range never move.
+  const resizeGroupVertical = (groupId: string, newMaxRow: number, subRows: number) => {
     setElements((prev) => {
-      const members = prev.filter((e) => memberIds.includes(e.id));
-      if (!members.length) return prev;
-      return prev.map((e) => (memberIds.includes(e.id) ? { ...e, heightPx: newHeightPx } : e));
+      const group = prev.filter((e) => e.kind === 'port' && e.groupId === groupId);
+      if (!group.length) return prev;
+      const minCol = Math.min(...group.map((e) => e.col));
+      const maxCol = Math.max(...group.map((e) => e.col));
+      const minRow = Math.min(...group.map((e) => e.row));
+      newMaxRow = Math.max(minRow, Math.min(subRows - 1, newMaxRow));
+      return resizeGroupRect(prev, groupId, minCol, maxCol, minRow, newMaxRow);
     });
   };
 
@@ -282,7 +306,7 @@ export default function RackDeviceEditorDialog({
               selectedId={selectedId}
               onSelect={setSelectedId}
               onResizeGroup={resizeGroup}
-              onResizeHeight={resizeHeight}
+              onResizeGroupVertical={(groupId, newMaxRow) => resizeGroupVertical(groupId, newMaxRow, rackUnits * SUB_ROWS_PER_U)}
               readOnly={readOnly}
             />
           </div>

@@ -59,18 +59,17 @@ export interface FaceElement {
   kind: 'port' | 'text' | 'icon';
   side: Side;
   col: number;
-  /** Visual height in px. Verified against the real editor's own markup
-   *  for a placed port: its grid placement is *always* `grid-row: 1 / -1`
-   *  (the full row-track span of the device's height, however many
-   *  sub-rows that is) with `align-self: center` — a port never actually
-   *  "lives" in one specific row. What makes it look like it only fills
-   *  the sub-row it landed on is this explicit height (one sub-row by
-   *  default) centered within that full span; dragging the bottom handle
-   *  grows this height, up to the full available span, rather than moving
-   *  the element to cover more grid rows. One column can only ever hold
-   *  one port (its grid placement always claims the whole column's row
-   *  range), so horizontal grouping only needs to check column adjacency. */
-  heightPx?: number;
+  /** Sub-row this specific port sits in (0-indexed). Ports pasted from the
+   *  real editor showed this is a real 2D grid, not a single "row-less"
+   *  port that just stretches taller: growing a port vertically doesn't
+   *  make one wider box, it adds a whole *second numbered port* stacked
+   *  in the row below (data-port-row="1" alongside data-port-row="0",
+   *  each its own <span>01</span>/<span>02</span>) — the exact same thing
+   *  horizontal growth already does with columns. A group is therefore a
+   *  dense minCol..maxCol × minRow..maxRow rectangle of individual ports,
+   *  one FaceElement per occupied cell — never a single element spanning
+   *  multiple cells by itself. */
+  row: number;
   /** Ports sharing a groupId share idPrefix/connectorType/countingDirection and renumber together. */
   groupId?: string;
   portType?: string;

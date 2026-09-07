@@ -8,20 +8,26 @@ import { computePortNumber } from './layout-utils';
 export const SUB_ROW_H = 37;
 
 /** A real CSS grid, cloned column-for-column from the real editor's own
- *  markup (`grid-template-columns: 1fr repeat(28, 1fr) 1fr`). Two things
- *  verified directly from pasted real markup, both different from this
- *  file's first pass:
+ *  markup (`grid-template-columns: 1fr repeat(28, 1fr) 1fr`). Three things
+ *  verified directly from pasted real markup:
  *
  *  1. A horizontal port group is ONE grid item (`gridColumn` spanning
  *     minCol→maxCol), not N separate per-cell buttons — selecting it
  *     highlights the whole span at once, not just one sub-cell.
- *  2. A port's `gridRow` is *always* `1 / -1` (the full row-track span,
- *     however many sub-rows the device has), never a specific row —
- *     `height` (default one sub-row) + `align-self: center` is what
- *     makes it look like it only occupies the sub-row it landed on.
- *     Growing that height via the bottom handle is what fills more of
- *     the device's height, up to the full span. One column can only
- *     ever hold one port, so grouping only needs column adjacency. */
+ *  2. A group is a dense minCol..maxCol × minRow..maxRow rectangle of
+ *     individual ports — growing a group vertically doesn't stretch one
+ *     port taller, it adds a whole second numbered port stacked in the
+ *     row below (a real 1x2 Copper group has TWO ports, 01 and 02, each
+ *     its own <span>), the same thing horizontal growth already does
+ *     with columns.
+ *  3. If a group's row-span exactly equals the device's full sub-row
+ *     count, its `gridRow` is an exact `start / span N` — no centering
+ *     needed since it already fills the space. Only when it's *shorter*
+ *     than the full height does it use `gridRow: 1 / -1` (reserving the
+ *     full column) plus an explicit `height` and `align-self: center` to
+ *     float in the middle of that reserved space — verified against a
+ *     single freshly-dropped port (1 row of 2) and a full-height 1x2/2x2
+ *     group (2 rows of 2), which use each pattern respectively. */
 export default function DeviceFaceGrid({
   side,
   subRows,
@@ -29,7 +35,7 @@ export default function DeviceFaceGrid({
   selectedId,
   onSelect,
   onResizeGroup,
-  onResizeHeight,
+  onResizeGroupVertical,
   readOnly
 }: {
   side: Side;
@@ -38,14 +44,19 @@ export default function DeviceFaceGrid({
   selectedId: string | null;
   onSelect: (id: string) => void;
   onResizeGroup: (groupId: string, newMaxCol: number) => void;
-  onResizeHeight: (memberIds: string[], newHeightPx: number) => void;
+  onResizeGroupVertical: (groupId: string, newMaxRow: number) => void;
   readOnly?: boolean;
 }) {
   const bySideElements = elements.filter((e) => e.side === side);
   const blocks = buildBlocks(bySideElements);
   const selectedGroupId = bySideElements.find((e) => e.id === selectedId)?.groupId;
-  const occupiedCols = new Set(blocks.flatMap((b) => Array.from({ length: b.maxCol - b.minCol + 1 }, (_, i) => b.minCol + i)));
-  const maxHeightPx = subRows * SUB_ROW_H;
+  const occupiedCells = new Set(
+    blocks.flatMap((b) => {
+      const cells: string[] = [];
+      for (let c = b.minCol; c <= b.maxCol; c++) for (let r = b.minRow; r <= b.maxRow; r++) cells.push(`${r}:${c}`);
+      return cells;
+    })
+  );
 
   return (
     <div
@@ -73,22 +84,24 @@ export default function DeviceFaceGrid({
         />
       ))}
 
-      {Array.from({ length: PORT_COLUMNS }, (_, col) => {
-        if (occupiedCols.has(col)) return null;
-        return <DropCell key={`drop-${col}`} side={side} col={col} readOnly={readOnly} />;
-      })}
+      {Array.from({ length: subRows }, (_, row) =>
+        Array.from({ length: PORT_COLUMNS }, (_, col) => {
+          if (occupiedCells.has(`${row}:${col}`)) return null;
+          return <DropCell key={`drop-${row}-${col}`} side={side} row={row} col={col} readOnly={readOnly} />;
+        })
+      )}
 
       {blocks.map((b) => (
         <PortBlock
           key={b.key}
           block={b}
+          subRows={subRows}
           allElements={elements}
           selected={b.groupId != null && b.groupId === selectedGroupId}
           selectedId={selectedId}
-          maxHeightPx={maxHeightPx}
           onSelect={onSelect}
           onResizeGroup={onResizeGroup}
-          onResizeHeight={onResizeHeight}
+          onResizeGroupVertical={onResizeGroupVertical}
           readOnly={readOnly}
         />
       ))}
@@ -99,16 +112,17 @@ export default function DeviceFaceGrid({
 interface Block {
   key: string;
   groupId?: string;
-  memberIds: string[];
   members: FaceElement[];
   kind: FaceElement['kind'];
-  heightPx: number;
   minCol: number;
   maxCol: number;
+  minRow: number;
+  maxRow: number;
 }
 
-/** Groups same-groupId ports into one spanning block; text/icon elements
- *  (and any stray groupless port) are each their own single-column block. */
+/** Groups same-groupId ports into one dense-rectangle block; text/icon
+ *  elements (and any stray groupless port) are each their own single-cell
+ *  block. */
 function buildBlocks(elements: FaceElement[]): Block[] {
   const grouped = new Map<string, FaceElement[]>();
   const singles: FaceElement[] = [];
@@ -124,77 +138,79 @@ function buildBlocks(elements: FaceElement[]): Block[] {
 
   const blocks: Block[] = [];
   for (const [groupId, members] of grouped) {
-    const cols = members.map((m) => m.col);
     blocks.push({
       key: groupId,
       groupId,
-      memberIds: members.map((m) => m.id),
-      members: [...members].sort((a, b) => a.col - b.col),
+      members: [...members].sort((a, b) => a.col - b.col || a.row - b.row),
       kind: 'port',
-      heightPx: Math.max(...members.map((m) => m.heightPx || SUB_ROW_H)),
-      minCol: Math.min(...cols),
-      maxCol: Math.max(...cols)
+      minCol: Math.min(...members.map((m) => m.col)),
+      maxCol: Math.max(...members.map((m) => m.col)),
+      minRow: Math.min(...members.map((m) => m.row)),
+      maxRow: Math.max(...members.map((m) => m.row))
     });
   }
   for (const e of singles) {
     blocks.push({
       key: e.id,
       groupId: e.groupId,
-      memberIds: [e.id],
       members: [e],
       kind: e.kind,
-      heightPx: e.heightPx || SUB_ROW_H,
       minCol: e.col,
-      maxCol: e.col
+      maxCol: e.col,
+      minRow: e.row,
+      maxRow: e.row
     });
   }
   return blocks;
 }
 
-function DropCell({ side, col, readOnly }: { side: Side; col: number; readOnly?: boolean }) {
+function DropCell({ side, row, col, readOnly }: { side: Side; row: number; col: number; readOnly?: boolean }) {
   const { setNodeRef, isOver } = useDroppable({
-    id: `face-cell-${side}-${col}`,
-    data: { side, col },
+    id: `face-cell-${side}-${row}-${col}`,
+    data: { side, row, col },
     disabled: readOnly
   });
   return (
     <div
       ref={setNodeRef}
-      style={{ gridColumn: col + 2, gridRow: '1 / -1', backgroundColor: isOver ? 'rgba(59,130,246,0.25)' : undefined }}
+      style={{ gridColumn: col + 2, gridRow: row + 1, backgroundColor: isOver ? 'rgba(59,130,246,0.25)' : undefined }}
     />
   );
 }
 
 function PortBlock({
   block,
+  subRows,
   allElements,
   selected,
   selectedId,
-  maxHeightPx,
   onSelect,
   onResizeGroup,
-  onResizeHeight,
+  onResizeGroupVertical,
   readOnly
 }: {
   block: Block;
+  subRows: number;
   allElements: FaceElement[];
   selected: boolean;
   selectedId: string | null;
-  maxHeightPx: number;
   onSelect: (id: string) => void;
   onResizeGroup: (groupId: string, newMaxCol: number) => void;
-  onResizeHeight: (memberIds: string[], newHeightPx: number) => void;
+  onResizeGroupVertical: (groupId: string, newMaxRow: number) => void;
   readOnly?: boolean;
 }) {
   const colSpan = block.maxCol - block.minCol + 1;
+  const rowSpan = block.maxRow - block.minRow + 1;
+  const fillsFullHeight = rowSpan >= subRows;
+  const byCell = new Map(block.members.map((m) => [`${m.row}:${m.col}`, m]));
 
   return (
     <div
       style={{
         gridColumn: `${block.minCol + 2} / span ${colSpan}`,
-        gridRow: '1 / -1',
-        alignSelf: 'center',
-        height: block.heightPx,
+        ...(fillsFullHeight
+          ? { gridRow: `${block.minRow + 1} / span ${rowSpan}` }
+          : { gridRow: '1 / -1', alignSelf: 'center', height: rowSpan * SUB_ROW_H }),
         borderColor: selected ? '#3b82f6' : '#52525b',
         backgroundColor: 'transparent',
         zIndex: 10
@@ -202,28 +218,35 @@ function PortBlock({
       className="relative rounded-sm border font-mono text-[8px]"
     >
       <div className="absolute inset-0 overflow-hidden">
-        <div className="grid h-full w-full" style={{ gridTemplateColumns: `repeat(${block.members.length}, 1fr)` }}>
+        <div
+          className="grid h-full w-full"
+          style={{ gridTemplateColumns: `repeat(${colSpan}, 1fr)`, gridTemplateRows: `repeat(${rowSpan}, 1fr)` }}
+        >
           {block.kind === 'port'
-            ? block.members.map((m) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => onSelect(m.id)}
-                  style={{ backgroundColor: m.id === selectedId ? 'rgba(59,130,246,0.25)' : 'rgba(59,130,246,0.12)' }}
-                  className="flex flex-col items-center justify-center gap-0 overflow-hidden rounded-[2px] text-[#d4d4d8] hover:brightness-125"
-                >
-                  {(() => {
-                    const def = getPortTypeDef(m.portType || '');
-                    const Icon = def?.icon || TbTypography;
-                    return (
-                      <>
-                        <span>{computePortNumber(m, allElements)}</span>
-                        <Icon className="size-3" />
-                      </>
-                    );
-                  })()}
-                </button>
-              ))
+            ? Array.from({ length: rowSpan }, (_, ri) =>
+                Array.from({ length: colSpan }, (_, ci) => {
+                  const m = byCell.get(`${block.minRow + ri}:${block.minCol + ci}`);
+                  if (!m) return null;
+                  const def = getPortTypeDef(m.portType || '');
+                  const Icon = def?.icon || TbTypography;
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => onSelect(m.id)}
+                      style={{
+                        gridColumn: ci + 1,
+                        gridRow: ri + 1,
+                        backgroundColor: m.id === selectedId ? 'rgba(59,130,246,0.25)' : 'rgba(59,130,246,0.12)'
+                      }}
+                      className="flex flex-col items-center justify-center gap-0 overflow-hidden rounded-[2px] text-[#d4d4d8] hover:brightness-125"
+                    >
+                      <span>{computePortNumber(m, allElements)}</span>
+                      <Icon className="size-3" />
+                    </button>
+                  );
+                })
+              )
             : (
                 <button
                   type="button"
@@ -247,8 +270,7 @@ function PortBlock({
             const startMaxCol = block.maxCol;
             const onMove = (ev: PointerEvent) => {
               const deltaCols = Math.round((ev.clientX - startClientX) / 28);
-              const next = Math.max(block.minCol, Math.min(PORT_COLUMNS - 1, startMaxCol + deltaCols));
-              onResizeGroup(groupId, next);
+              onResizeGroup(groupId, startMaxCol + deltaCols);
             };
             const onUp = () => {
               document.removeEventListener('pointermove', onMove);
@@ -259,18 +281,18 @@ function PortBlock({
           }}
         />
       )}
-      {!readOnly && (
+      {block.kind === 'port' && !readOnly && (
         <ResizeHandle
           axis="y"
           className="absolute -bottom-1.5 left-0 h-3 w-full"
           cursor="cursor-ns-resize"
           icon={<TbChevronDown className="size-2" />}
           onStart={(startClientY) => {
-            const startHeight = block.heightPx;
+            const groupId = block.groupId!;
+            const startMaxRow = block.maxRow;
             const onMove = (ev: PointerEvent) => {
-              const deltaPx = ev.clientY - startClientY;
-              const next = Math.max(SUB_ROW_H, Math.min(maxHeightPx, startHeight + deltaPx));
-              onResizeHeight(block.memberIds, next);
+              const deltaRows = Math.round((ev.clientY - startClientY) / SUB_ROW_H);
+              onResizeGroupVertical(groupId, startMaxRow + deltaRows);
             };
             const onUp = () => {
               document.removeEventListener('pointermove', onMove);
