@@ -3,11 +3,19 @@ import { TbTypography, TbPhoto } from 'react-icons/tb';
 import { GRID_COLUMNS, getPortTypeDef, type FaceElement, type Side } from './port-types';
 import { computePortNumber } from './layout-utils';
 
-export const CELL_PX = 26;
+export const CELL_W = 28;
+export const CELL_H = 72;
+/** First two columns are a fixed decorative "ear" (mounting-bracket-style
+ *  block), not a droppable port slot — matches the real editor's canvas,
+ *  which reserves the same two columns the same way regardless of what's
+ *  placed. */
+const EAR_COLUMNS = 2;
 
 /** One side's device face — `rows` stacked U-strips (a 1U device gets one
  *  row, a 2U device two, etc.), each a droppable GRID_COLUMNS-wide strip of
- *  cells you drag ports onto. */
+ *  cells you drag ports onto. Dark, not white — verified against the real
+ *  editor's own computed styles (oklch(0.1822 0 0) canvas, translucent
+ *  white cell dividers), not guessed. */
 export default function DeviceFaceGrid({
   side,
   rows,
@@ -28,11 +36,7 @@ export default function DeviceFaceGrid({
   const bySideElements = elements.filter((e) => e.side === side);
 
   return (
-    // Backgrounds set inline, not via bg-white/bg-[#0c0c0e] — see the note
-    // in PortToolbar.tsx: this app's frozen styles.css only has utility
-    // rules the real app's original source happened to use, and neither of
-    // those two ever appeared there.
-    <div className="flex overflow-hidden rounded-sm border border-[#3f3f46]" style={{ backgroundColor: '#ffffff' }}>
+    <div className="flex overflow-hidden rounded-sm border border-[#3f3f46]" style={{ backgroundColor: '#18181b' }}>
       <div className="flex flex-col">
         {Array.from({ length: rows }, (_, row) => (
           <FaceRow
@@ -87,8 +91,16 @@ function FaceRow({
   }
 
   return (
-    <div className="flex" style={{ borderTop: row > 0 ? '1px dashed #e4e4e7' : undefined }}>
-      {Array.from({ length: GRID_COLUMNS }, (_, col) => {
+    <div className="flex" style={{ borderTop: row > 0 ? '1px dashed rgba(255,255,255,0.15)' : undefined }}>
+      {Array.from({ length: EAR_COLUMNS }, (_, i) => (
+        <div
+          key={`ear-${i}`}
+          style={{ width: CELL_W, height: CELL_H, backgroundColor: 'rgba(255,255,255,0.12)' }}
+          className="shrink-0 border-r border-[rgba(255,255,255,0.08)] last:border-r-0"
+        />
+      ))}
+      {Array.from({ length: GRID_COLUMNS - EAR_COLUMNS }, (_, i) => {
+        const col = i + EAR_COLUMNS;
         const el = byCol.get(col);
         const isGroupEnd = !!(el?.groupId && groupMaxCol.get(el.groupId) === col);
         return (
@@ -108,8 +120,8 @@ function FaceRow({
               const groupId = el.groupId;
               const startMaxCol = col;
               const onMove = (e: PointerEvent) => {
-                const deltaCols = Math.round((e.clientX - startClientX) / CELL_PX);
-                const next = Math.max(0, Math.min(GRID_COLUMNS - 1, startMaxCol + deltaCols));
+                const deltaCols = Math.round((e.clientX - startClientX) / CELL_W);
+                const next = Math.max(EAR_COLUMNS, Math.min(GRID_COLUMNS - 1, startMaxCol + deltaCols));
                 onResizeGroup(groupId, next);
               };
               const onUp = () => {
@@ -158,19 +170,19 @@ function FaceCell({
   return (
     <div
       ref={setNodeRef}
-      style={{ width: CELL_PX, height: CELL_PX, backgroundColor: isOver && !element ? '#dbeafe' : undefined }}
-      className="relative shrink-0 border-r border-[#e4e4e7] last:border-r-0"
+      style={{ width: CELL_W, height: CELL_H, backgroundColor: isOver && !element ? 'rgba(59,130,246,0.25)' : undefined }}
+      className="relative shrink-0 border-r border-[rgba(255,255,255,0.08)] last:border-r-0"
     >
       {element && (
         <button
           type="button"
           onClick={() => onSelect(element.id)}
           style={{
-            borderColor: selected ? '#3b82f6' : '#a1a1aa',
-            backgroundColor: selected ? '#dbeafe' : '#f4f4f5',
-            color: selected ? '#1d4ed8' : '#3f3f46'
+            borderColor: selected ? '#3b82f6' : '#52525b',
+            backgroundColor: selected ? 'rgba(59,130,246,0.2)' : '#27272a',
+            color: selected ? '#93c5fd' : '#d4d4d8'
           }}
-          className="absolute inset-0.5 flex flex-col items-center justify-center gap-0 rounded-[3px] border text-[7px] leading-none hover:border-[#71717a]"
+          className="absolute inset-0.5 flex flex-col items-center justify-center gap-0 rounded-[3px] border text-[8px] leading-none hover:border-[#71717a]"
         >
           <ElementGlyph element={element} allElements={allElements} />
         </button>

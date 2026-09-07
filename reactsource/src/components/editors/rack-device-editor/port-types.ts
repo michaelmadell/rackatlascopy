@@ -72,4 +72,4 @@ export interface FaceElement {
   value?: string;
 }
 
-export const GRID_COLUMNS = 24;
+export const GRID_COLUMNS = 29;
