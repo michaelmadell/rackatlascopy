@@ -20,7 +20,7 @@ import PortToolbar from './PortToolbar';
 import DeviceFaceGrid from './DeviceFaceGrid';
 import PortSettingsPanel from './PortSettingsPanel';
 import { resolveGroupForDrop, computePortNumber } from './layout-utils';
-import type { FaceElement, Side } from './port-types';
+import { SUB_ROWS_PER_U, type FaceElement, type Side } from './port-types';
 
 /**
  * Rack Device Editor — clone of app.patchdocs.io's Device Library "create
@@ -150,6 +150,22 @@ export default function RackDeviceEditorDialog({
     });
   };
 
+  // Drag the handle on a port's bottom edge to grow/shrink how many
+  // sub-rows tall it is — a freshly-dropped port only fills the one
+  // sub-row it landed on; this is how it spans the rest of its U (or
+  // further, into the U below).
+  const resizeRowSpan = (elementId: string, newRowSpan: number) => {
+    setElements((prev) => {
+      const el = prev.find((e) => e.id === elementId);
+      if (!el) return prev;
+      const occupied = prev.some(
+        (e) => e.id !== elementId && e.side === el.side && e.col === el.col && e.row > el.row && e.row < el.row + newRowSpan
+      );
+      if (occupied) return prev;
+      return prev.map((e) => (e.id === elementId ? { ...e, rowSpan: newRowSpan } : e));
+    });
+  };
+
   const updateValue = (id: string, value: string) => {
     setElements((prev) => prev.map((e) => (e.id === id ? { ...e, value } : e)));
   };
@@ -261,11 +277,12 @@ export default function RackDeviceEditorDialog({
           <div className="mb-4 overflow-x-auto">
             <DeviceFaceGrid
               side={side}
-              rows={rackUnits}
+              subRows={rackUnits * SUB_ROWS_PER_U}
               elements={elements}
               selectedId={selectedId}
               onSelect={setSelectedId}
               onResizeGroup={resizeGroup}
+              onResizeRowSpan={resizeRowSpan}
               readOnly={readOnly}
             />
           </div>

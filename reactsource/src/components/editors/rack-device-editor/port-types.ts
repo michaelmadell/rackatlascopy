@@ -58,10 +58,16 @@ export interface FaceElement {
   id: string;
   kind: 'port' | 'text' | 'icon';
   side: Side;
-  /** Which U row on the face this sits in — 0-indexed from the top of the
-   *  device (a 1U device has only row 0; a 2U device has rows 0 and 1). */
+  /** Which sub-row this sits in, 0-indexed from the top — each U is 2
+   *  sub-rows (verified against the real editor: a cell's height doubles
+   *  1U→2U, from a 2-sub-row-tall slot to a 4-sub-row-tall one), so a 1U
+   *  device has sub-rows 0-1, a 2U device 0-3. */
   row: number;
   col: number;
+  /** How many sub-rows tall this element is (default 1). A freshly-dropped
+   *  port only fills the sub-row it landed on; dragging its bottom-edge
+   *  handle grows it into the sub-row(s) below. */
+  rowSpan?: number;
   /** Ports sharing a groupId share idPrefix/connectorType/countingDirection and renumber together. */
   groupId?: string;
   portType?: string;
@@ -73,3 +79,5 @@ export interface FaceElement {
 }
 
 export const GRID_COLUMNS = 29;
+/** Sub-rows per rack unit — see the FaceElement.row doc comment. */
+export const SUB_ROWS_PER_U = 2;
