@@ -20,7 +20,7 @@ import PortToolbar from './PortToolbar';
 import DeviceFaceGrid from './DeviceFaceGrid';
 import PortSettingsPanel from './PortSettingsPanel';
 import { resolveGroupForDrop, computePortNumber } from './layout-utils';
-import { SUB_ROWS_PER_U, type FaceElement, type Side } from './port-types';
+import { PORT_COLUMNS, SUB_ROWS_PER_U, type FaceElement, type Side } from './port-types';
 
 /**
  * Rack Device Editor — clone of app.patchdocs.io's Device Library "create
@@ -119,7 +119,7 @@ export default function RackDeviceEditorDialog({
       if (!group.length) return prev;
       const base = group[0];
       const minCol = Math.min(...group.map((e) => e.col));
-      if (newMaxCol < minCol) return prev;
+      newMaxCol = Math.max(minCol, Math.min(PORT_COLUMNS - 1, newMaxCol));
       const currentCols = new Set(group.map((e) => e.col));
       const targetCols: number[] = [];
       for (let c = minCol; c <= newMaxCol; c++) targetCols.push(c);
@@ -150,19 +150,31 @@ export default function RackDeviceEditorDialog({
     });
   };
 
-  // Drag the handle on a port's bottom edge to grow/shrink how many
+  // Drag the handle on a block's bottom edge to grow/shrink how many
   // sub-rows tall it is — a freshly-dropped port only fills the one
   // sub-row it landed on; this is how it spans the rest of its U (or
-  // further, into the U below).
-  const resizeRowSpan = (elementId: string, newRowSpan: number) => {
+  // further, into the U below). Applies to every port sharing this block
+  // (its whole horizontal group), not just the one under the cursor —
+  // otherwise a group could end up with mismatched member heights and the
+  // single spanning block DeviceFaceGrid renders for it would have
+  // nothing coherent to size itself to.
+  const resizeRowSpan = (memberIds: string[], newRowSpan: number) => {
     setElements((prev) => {
-      const el = prev.find((e) => e.id === elementId);
-      if (!el) return prev;
+      const members = prev.filter((e) => memberIds.includes(e.id));
+      if (!members.length) return prev;
+      const base = members[0];
+      const clamped = Math.max(1, newRowSpan);
+      const memberCols = new Set(members.map((m) => m.col));
       const occupied = prev.some(
-        (e) => e.id !== elementId && e.side === el.side && e.col === el.col && e.row > el.row && e.row < el.row + newRowSpan
+        (e) =>
+          !memberIds.includes(e.id) &&
+          e.side === base.side &&
+          memberCols.has(e.col) &&
+          e.row < base.row + clamped &&
+          e.row + (e.rowSpan || 1) > base.row
       );
       if (occupied) return prev;
-      return prev.map((e) => (e.id === elementId ? { ...e, rowSpan: newRowSpan } : e));
+      return prev.map((e) => (memberIds.includes(e.id) ? { ...e, rowSpan: clamped } : e));
     });
   };
 

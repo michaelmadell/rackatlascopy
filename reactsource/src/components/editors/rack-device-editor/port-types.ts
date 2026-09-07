@@ -78,6 +78,11 @@ export interface FaceElement {
   value?: string;
 }
 
-export const GRID_COLUMNS = 29;
+/** Droppable port columns — cloned from the real editor's own grid-template
+ *  (`grid-template-columns: 1fr repeat(28, 1fr) 1fr`): 28 port columns
+ *  between a 1-column ear on the left and a 1-column side label on the
+ *  right, so the CSS grid is 30 columns wide overall. `col` on a
+ *  FaceElement is 0-indexed into just these 28 (grid column = col + 2). */
+export const PORT_COLUMNS = 28;
 /** Sub-rows per rack unit — see the FaceElement.row doc comment. */
 export const SUB_ROWS_PER_U = 2;
