@@ -458,14 +458,18 @@ function WlansPage() {
         wlanSsid={wlanForDevices?.ssid}
       />
 
-      <NoteEditorDialogMdx
-        open={isNotesDialogOpen}
-        onOpenChange={setIsNotesDialogOpen}
-        initialContent={wlanForNotes?.notes || ''}
-        onSave={handleSaveNotes}
-        canEdit={true}
-        resourceName={wlanForNotes?.ssid || ''}
-      />
+      {/* Mounted only while open — see the same guard on the locations list
+          page for why this editor can't be mounted unconditionally. */}
+      {isNotesDialogOpen && (
+        <NoteEditorDialogMdx
+          open={isNotesDialogOpen}
+          onOpenChange={setIsNotesDialogOpen}
+          initialContent={wlanForNotes?.notes || ''}
+          onSave={handleSaveNotes}
+          canEdit={true}
+          resourceName={wlanForNotes?.ssid || ''}
+        />
+      )}
     </div>
   )
 }

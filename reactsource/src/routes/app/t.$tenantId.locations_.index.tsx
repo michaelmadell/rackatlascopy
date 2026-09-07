@@ -574,14 +574,22 @@ function LocationsPage() {
         onSave={handleUpdateLocation}
       />
 
-      <NoteEditorDialogMdx
-        open={notesDialogOpen}
-        onOpenChange={setNotesDialogOpen}
-        initialContent={selectedLocation?.notes || ''}
-        onSave={handleSaveNotes}
-        canEdit={!readOnly && !!selectedPermissions?.canWrite}
-        resourceName={selectedLocation?.fullReference || selectedLocation?.reference || ''}
-      />
+      {/* Mounted only while open — this editor's underlying Lexical/MDX setup
+          has a known cold-load init race (a duplicate-module "GenericHTMLNode
+          is not a constructor" crash) when it initializes before Vite's dev
+          dependency pre-bundle has settled. Mounting it unconditionally meant
+          every visit to this page paid that risk on first load, even though
+          nobody had opened the notes dialog yet. */}
+      {notesDialogOpen && (
+        <NoteEditorDialogMdx
+          open={notesDialogOpen}
+          onOpenChange={setNotesDialogOpen}
+          initialContent={selectedLocation?.notes || ''}
+          onSave={handleSaveNotes}
+          canEdit={!readOnly && !!selectedPermissions?.canWrite}
+          resourceName={selectedLocation?.fullReference || selectedLocation?.reference || ''}
+        />
+      )}
 
       {selectedLocation && (
         <MoveResourceDialog

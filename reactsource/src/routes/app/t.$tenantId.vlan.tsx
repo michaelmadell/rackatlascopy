@@ -432,14 +432,18 @@ function VlansPage() {
         addedVerification={vlanToDelete?.name}
       />
 
-      <NoteEditorDialogMdx
-        open={isNotesDialogOpen}
-        onOpenChange={setIsNotesDialogOpen}
-        initialContent={vlanForNotes?.notes || ''}
-        onSave={handleSaveNotes}
-        canEdit={true}
-        resourceName={vlanForNotes?.name || ''}
-      />
+      {/* Mounted only while open — see the same guard on the locations list
+          page for why this editor can't be mounted unconditionally. */}
+      {isNotesDialogOpen && (
+        <NoteEditorDialogMdx
+          open={isNotesDialogOpen}
+          onOpenChange={setIsNotesDialogOpen}
+          initialContent={vlanForNotes?.notes || ''}
+          onSave={handleSaveNotes}
+          canEdit={true}
+          resourceName={vlanForNotes?.name || ''}
+        />
+      )}
     </div>
   )
 }
