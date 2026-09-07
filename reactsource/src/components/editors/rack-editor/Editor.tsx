@@ -16,6 +16,7 @@ import { Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger,
 import { TbTrash, TbX } from 'react-icons/tb';
 import RackGrid, { ROW_PX, type HoverRange } from './RackGrid';
 import DevicePalette from './DevicePalette';
+import AddDeviceModal from './AddDeviceModal';
 import { getDeviceVisual } from './device-icon';
 
 type DragPayload = { kind: 'catalog' | 'existing'; device: any };
@@ -103,6 +104,8 @@ export default function RackEditor({
   const [activeDrag, setActiveDrag] = useState<DragPayload | null>(null);
   const [hoverRange, setHoverRange] = useState<HoverRange | null>(null);
   const [dropError, setDropError] = useState<string | null>(null);
+  const [pendingPlacement, setPendingPlacement] = useState<{ device: any; targetStart: number } | null>(null);
+  const [inserting, setInserting] = useState(false);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
@@ -166,7 +169,27 @@ export default function RackEditor({
     }
 
     if (drag.kind === 'catalog') {
-      const catalogDevice = drag.device;
+      // New devices go through a confirmation step (AddDeviceModal), matching
+      // the real app — dropping just stages the placement; nothing is
+      // created until the user hits "Insert device". Repositioning an
+      // already-placed device (the `else` branch) stays instant.
+      setPendingPlacement({ device: drag.device, targetStart });
+    } else {
+      await onDeviceUpdate?.(drag.device._id, { unit: targetStart });
+      invalidateSubDevices();
+    }
+  };
+
+  const handleDragCancel = () => {
+    setActiveDrag(null);
+    setHoverRange(null);
+  };
+
+  const handleInsertPendingDevice = async () => {
+    if (!pendingPlacement || !rack?._id || !tenantId) return;
+    setInserting(true);
+    try {
+      const catalogDevice = pendingPlacement.device;
       await api.post(`/tenant/${tenantId}/device`, {
         tenantId,
         locationId: rack.locationId,
@@ -177,18 +200,14 @@ export default function RackEditor({
         name: catalogDevice.name,
         type: catalogDevice.type,
         heightU: catalogDevice.rackUnits || 1,
-        unit: targetStart,
+        unit: pendingPlacement.targetStart,
         side
       });
-    } else {
-      await onDeviceUpdate?.(drag.device._id, { unit: targetStart });
+      invalidateSubDevices();
+      setPendingPlacement(null);
+    } finally {
+      setInserting(false);
     }
-    invalidateSubDevices();
-  };
-
-  const handleDragCancel = () => {
-    setActiveDrag(null);
-    setHoverRange(null);
   };
 
   const visibleSubDevices = subDevices.filter((d: any) => (d.side || 'front') === side);
@@ -253,6 +272,14 @@ export default function RackEditor({
       <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.2, 0, 0, 1)' }}>
         {activeDrag && <DragGhost drag={activeDrag} />}
       </DragOverlay>
+
+      <AddDeviceModal
+        open={!!pendingPlacement}
+        device={pendingPlacement?.device ?? null}
+        onClose={() => setPendingPlacement(null)}
+        onInsert={handleInsertPendingDevice}
+        inserting={inserting}
+      />
     </DndContext>
   );
 }
