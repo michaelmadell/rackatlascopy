@@ -7,13 +7,55 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
-  type DragStartEvent
+  type DragMoveEvent,
+  type DragStartEvent,
+  type Modifier
 } from '@dnd-kit/core';
 import { useAuthenticatedApi } from '@/hooks/useAuthenticatedApi';
 import { Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/patchdocs-ui';
-import { TbServer, TbTrash, TbX } from 'react-icons/tb';
-import RackGrid, { ROW_PX } from './RackGrid';
+import { TbTrash, TbX } from 'react-icons/tb';
+import RackGrid, { ROW_PX, type HoverRange } from './RackGrid';
 import DevicePalette from './DevicePalette';
+import { getDeviceVisual } from './device-icon';
+
+type DragPayload = { kind: 'catalog' | 'existing'; device: any };
+
+/** Repositioning a placed device only ever moves it up/down its own rack
+ *  column — locking the drag to the vertical axis makes that obvious and
+ *  removes the wobble of a freely-tracked cursor. A fresh catalog item still
+ *  needs to travel sideways from the palette into the rack, so the lock
+ *  only applies to `kind: 'existing'` drags. */
+const lockExistingToVerticalAxis: Modifier = ({ transform, active }) => {
+  if ((active?.data?.current as DragPayload | undefined)?.kind === 'existing') {
+    return { ...transform, x: 0 };
+  }
+  return transform;
+};
+
+/** Shared by the live hover preview (onDragMove) and the actual commit
+ *  (onDragEnd) so the highlighted footprint and the drop outcome can never
+ *  disagree with each other. */
+function resolveDrop(drag: DragPayload, hoveredUnit: number, heightU: number, subDevices: any[]) {
+  const deviceHeightU = drag.kind === 'catalog' ? drag.device.rackUnits || 1 : drag.device.heightU || 1;
+  const targetStart = hoveredUnit - deviceHeightU + 1;
+  const targetTop = hoveredUnit;
+
+  if (targetStart < 1 || targetTop > heightU) {
+    return { targetStart, targetTop, valid: false, reason: "Doesn't fit there — off the top or bottom of the rack." };
+  }
+
+  const selfId = drag.kind === 'existing' ? drag.device._id : null;
+  for (const other of subDevices) {
+    if (other._id === selfId) continue;
+    const otherStart = other.unit || 1;
+    const otherTop = otherStart + (other.heightU || 1) - 1;
+    if (targetStart <= otherTop && otherStart <= targetTop) {
+      return { targetStart, targetTop, valid: false, reason: `Overlaps ${other.name}.` };
+    }
+  }
+
+  return { targetStart, targetTop, valid: true, reason: null as string | null };
+}
 
 /**
  * Rack elevation editor — drag a device from the catalog onto the rack to
@@ -58,7 +100,8 @@ export default function RackEditor({
 
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(initialSelectedDeviceId || null);
   const [side, setSide] = useState<'front' | 'back'>('front');
-  const [activeDrag, setActiveDrag] = useState<{ kind: 'catalog' | 'existing'; device: any } | null>(null);
+  const [activeDrag, setActiveDrag] = useState<DragPayload | null>(null);
+  const [hoverRange, setHoverRange] = useState<HoverRange | null>(null);
   const [dropError, setDropError] = useState<string | null>(null);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
@@ -93,36 +136,33 @@ export default function RackEditor({
   };
 
   const handleDragStart = (event: DragStartEvent) => {
-    const data = event.active.data.current as { kind: 'catalog' | 'existing'; device: any } | undefined;
+    const data = event.active.data.current as DragPayload | undefined;
     if (data) setActiveDrag(data);
+  };
+
+  const handleDragMove = (event: DragMoveEvent) => {
+    const drag = event.active.data.current as DragPayload | undefined;
+    if (!drag || !event.over) {
+      setHoverRange(null);
+      return;
+    }
+    const hoveredUnit = (event.over.data.current as { unit: number }).unit;
+    const { targetStart, targetTop, valid } = resolveDrop(drag, hoveredUnit, heightU, subDevices);
+    setHoverRange({ start: targetStart, end: targetTop, valid });
   };
 
   const handleDragEnd = async (event: DragEndEvent) => {
     const drag = activeDrag;
     setActiveDrag(null);
+    setHoverRange(null);
     if (!drag || !event.over || !rack?._id || !tenantId) return;
 
     const hoveredUnit = (event.over.data.current as { unit: number }).unit;
-    const deviceHeightU =
-      drag.kind === 'catalog' ? drag.device.rackUnits || 1 : drag.device.heightU || 1;
-    const targetStart = hoveredUnit - deviceHeightU + 1;
-    const targetTop = hoveredUnit;
+    const { targetStart, valid, reason } = resolveDrop(drag, hoveredUnit, heightU, subDevices);
 
-    if (targetStart < 1 || targetTop > heightU) {
-      setDropError("Doesn't fit there — off the top or bottom of the rack.");
+    if (!valid) {
+      setDropError(reason);
       return;
-    }
-
-    const selfId = drag.kind === 'existing' ? drag.device._id : null;
-    for (const other of subDevices) {
-      if (other._id === selfId) continue;
-      const otherStart = other.unit || 1;
-      const otherTop = otherStart + (other.heightU || 1) - 1;
-      const overlaps = targetStart <= otherTop && otherStart <= targetTop;
-      if (overlaps) {
-        setDropError(`Overlaps ${other.name}.`);
-        return;
-      }
     }
 
     if (drag.kind === 'catalog') {
@@ -146,11 +186,23 @@ export default function RackEditor({
     invalidateSubDevices();
   };
 
+  const handleDragCancel = () => {
+    setActiveDrag(null);
+    setHoverRange(null);
+  };
+
   const visibleSubDevices = subDevices.filter((d: any) => (d.side || 'front') === side);
   const selectedDevice = subDevices.find((d: any) => d._id === selectedDeviceId);
 
   return (
-    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+    <DndContext
+      sensors={sensors}
+      modifiers={[lockExistingToVerticalAxis]}
+      onDragStart={handleDragStart}
+      onDragMove={handleDragMove}
+      onDragEnd={handleDragEnd}
+      onDragCancel={handleDragCancel}
+    >
       <div className="flex-1 flex bg-[#0c0c0e] text-[#f4f4f5] overflow-hidden">
         {!readOnly && <DevicePalette devices={customRackDevices} />}
 
@@ -181,7 +233,7 @@ export default function RackEditor({
               selectedDeviceId={selectedDeviceId}
               onSelectDevice={selectDevice}
               readOnly={readOnly}
-              draggingHeightU={activeDrag ? (activeDrag.kind === 'catalog' ? activeDrag.device.rackUnits || 1 : activeDrag.device.heightU || 1) : null}
+              hoverRange={hoverRange}
             />
           )}
         </div>
@@ -198,18 +250,25 @@ export default function RackEditor({
         />
       </div>
 
-      <DragOverlay>
-        {activeDrag && (
-          <div
-            style={{ height: (activeDrag.kind === 'catalog' ? activeDrag.device.rackUnits || 1 : activeDrag.device.heightU || 1) * ROW_PX }}
-            className="flex items-center gap-1.5 rounded-sm border border-blue-400 bg-blue-500/30 px-2 text-[11px] text-[#f4f4f5] w-96"
-          >
-            <TbServer className="size-3.5 shrink-0" />
-            <span className="truncate">{activeDrag.device.name}</span>
-          </div>
-        )}
+      <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.2, 0, 0, 1)' }}>
+        {activeDrag && <DragGhost drag={activeDrag} />}
       </DragOverlay>
     </DndContext>
+  );
+}
+
+function DragGhost({ drag }: { drag: DragPayload }) {
+  const heightU = drag.kind === 'catalog' ? drag.device.rackUnits || 1 : drag.device.heightU || 1;
+  const { Icon, color } = getDeviceVisual(drag.device.type);
+  return (
+    <div
+      style={{ height: heightU * ROW_PX, width: 400, borderLeftColor: color }}
+      className="flex cursor-grabbing items-center gap-1.5 overflow-hidden rounded-sm border border-l-[3px] border-blue-400 bg-[#202024]/95 px-2 text-left shadow-2xl shadow-black/60 ring-1 ring-blue-400/40"
+    >
+      <Icon className="size-3.5 shrink-0" style={{ color }} />
+      <span className="min-w-0 flex-1 truncate text-[11px] text-[#f4f4f5]">{drag.device.name}</span>
+      <span className="shrink-0 rounded bg-[#0c0c0e]/60 px-1 text-[9px] text-[#a1a1aa]">{heightU}U</span>
+    </div>
   );
 }
 

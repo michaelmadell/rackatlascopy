@@ -1,5 +1,6 @@
 import { useDraggable } from '@dnd-kit/core';
 import { TbGripVertical } from 'react-icons/tb';
+import { getDeviceVisual } from './device-icon';
 
 /**
  * Drag source: catalog devices. Drop one onto RackGrid to create a new
@@ -22,19 +23,24 @@ function PaletteItem({ device }: { device: any }) {
     id: `catalog-${device._id}`,
     data: { kind: 'catalog', device }
   });
+  const { Icon, color } = getDeviceVisual(device.type);
 
   return (
     <div
       ref={setNodeRef}
       {...listeners}
       {...attributes}
-      className={`flex items-center gap-1.5 rounded px-2 py-1.5 text-xs cursor-grab active:cursor-grabbing text-[#a1a1aa] hover:bg-[#18181b] hover:text-[#f4f4f5] ${
+      className={`flex items-center gap-1.5 rounded-sm border border-transparent px-2 py-1.5 text-xs cursor-grab active:cursor-grabbing text-[#a1a1aa] transition-colors hover:border-[#3f3f46] hover:bg-[#18181b] hover:text-[#f4f4f5] ${
         isDragging ? 'opacity-40' : ''
       }`}
     >
       <TbGripVertical className="size-3.5 shrink-0 text-[#52525b]" />
-      <span className="flex-1 truncate">{device.name}</span>
-      <span className="text-[#71717a] shrink-0">{device.rackUnits || 1}U</span>
+      <Icon className="size-3.5 shrink-0" style={{ color }} />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate">{device.name}</span>
+        {device.brand && <span className="block truncate text-[10px] text-[#52525b]">{device.brand}</span>}
+      </span>
+      <span className="shrink-0 rounded bg-[#0c0c0e]/60 px-1 text-[10px] text-[#71717a]">{device.rackUnits || 1}U</span>
     </div>
   );
 }

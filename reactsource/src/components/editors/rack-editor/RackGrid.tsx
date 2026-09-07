@@ -8,6 +8,14 @@ export const ROW_PX = 24;
 const TOP_PX = 28;
 const BOTTOM_PX = 42;
 
+export interface HoverRange {
+  /** Bottom unit of the span (inclusive) — matches the device `unit` convention. */
+  start: number;
+  /** Top unit of the span (inclusive). */
+  end: number;
+  valid: boolean;
+}
+
 /**
  * The visual rack elevation: RackTop/RackMiddle/RackBottom (the SVG pieces
  * added to components/) stacked as the background, with device blocks laid
@@ -26,15 +34,15 @@ export default function RackGrid({
   selectedDeviceId,
   onSelectDevice,
   readOnly,
-  draggingHeightU
+  hoverRange
 }: {
   heightU: number;
   devices: any[];
   selectedDeviceId?: string | null;
   onSelectDevice?: (id: string) => void;
   readOnly?: boolean;
-  /** Height (in U) of whatever's currently being dragged, if anything — used to preview which slots it would occupy. */
-  draggingHeightU?: number | null;
+  /** The full unit-span the item currently being dragged would occupy if dropped here, and whether that's a legal drop. */
+  hoverRange?: HoverRange | null;
 }) {
   const units = Array.from({ length: heightU }, (_, i) => heightU - i);
 
@@ -46,13 +54,25 @@ export default function RackGrid({
   }
 
   return (
-    <div className="inline-block bg-[#0c0c0e] text-[#71717a]" style={{ width: 440 }}>
+    <div className="inline-block bg-[#0c0c0e] text-[#71717a] drop-shadow-xl" style={{ width: 440 }}>
       <RackTop className="w-full" style={{ height: TOP_PX }} />
 
       <div className="relative" style={{ height: heightU * ROW_PX }}>
         <div className="absolute inset-0 flex flex-col">
           {units.map((u) => (
-            <RackSlot key={u} unit={u} occupied={occupiedBy.has(u)} readOnly={readOnly} />
+            <RackSlot
+              key={u}
+              unit={u}
+              occupied={occupiedBy.has(u)}
+              readOnly={readOnly}
+              hoverState={
+                hoverRange && u >= hoverRange.start && u <= hoverRange.end
+                  ? hoverRange.valid
+                    ? 'valid'
+                    : 'invalid'
+                  : null
+              }
+            />
           ))}
         </div>
 
@@ -75,12 +95,6 @@ export default function RackGrid({
             );
           })}
         </div>
-
-        {draggingHeightU != null && (
-          <div className="absolute inset-0 pointer-events-none">
-            <DragHeightLabel heightU={draggingHeightU} />
-          </div>
-        )}
       </div>
 
       <RackBottom className="w-full" style={{ height: BOTTOM_PX }} />
@@ -88,8 +102,18 @@ export default function RackGrid({
   );
 }
 
-function RackSlot({ unit, occupied, readOnly }: { unit: number; occupied: boolean; readOnly?: boolean }) {
-  const { setNodeRef, isOver } = useDroppable({
+function RackSlot({
+  unit,
+  occupied,
+  readOnly,
+  hoverState
+}: {
+  unit: number;
+  occupied: boolean;
+  readOnly?: boolean;
+  hoverState: 'valid' | 'invalid' | null;
+}) {
+  const { setNodeRef } = useDroppable({
     id: `slot-${unit}`,
     data: { unit },
     disabled: readOnly
@@ -99,13 +123,15 @@ function RackSlot({ unit, occupied, readOnly }: { unit: number; occupied: boolea
     <div
       ref={setNodeRef}
       style={{ height: ROW_PX }}
-      className={`shrink-0 ${isOver && !occupied ? 'bg-blue-500/20' : ''}`}
+      className={`relative shrink-0 transition-colors duration-75 ${
+        hoverState === 'valid' && !occupied
+          ? 'bg-blue-500/25'
+          : hoverState === 'invalid' && !occupied
+            ? 'bg-red-500/20'
+            : ''
+      }`}
     >
       <RackMiddle unitNumber={unit} className="w-full h-full" />
     </div>
   );
-}
-
-function DragHeightLabel({ heightU }: { heightU: number }) {
-  return <p className="absolute top-1 right-1 text-[10px] text-blue-400">{heightU}U</p>;
 }
