@@ -356,7 +356,13 @@ export default function RackDeviceEditorDialog({
           </div>
         </DndContext>
 
-        <div className="flex justify-end gap-2.5">
+        {/* Real footer bleeds to the dialog's edges as its own bordered bar
+         * (bg-muted/50 -mx-4 -mb-4 rounded-b-xl border-t p-4), not a plain
+         * flex row sharing the body's padding. */}
+        <div
+          className="-mx-4 -mb-4 flex justify-end gap-2.5 rounded-b-xl border-t border-[#27272a] p-4"
+          style={{ backgroundColor: 'rgba(39,39,42,0.5)' }}
+        >
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {readOnly ? 'Close' : 'Cancel'}
           </Button>
