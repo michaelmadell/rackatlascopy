@@ -190,6 +190,37 @@ export default function RackDeviceEditorDialog({
     });
   };
 
+  // Text/icon elements resize independently — not a group rectangle, just
+  // this one element's own colSpan/rowSpan growing/shrinking from its
+  // fixed col/row origin (mirrors resizeGroup/resizeGroupVertical's
+  // right/bottom-edge-only math, just against a single element instead of
+  // a whole port group).
+  const resizeElementSpan = (id: string, axis: 'col' | 'row', newMax: number, subRows: number) => {
+    setElements((prev) => {
+      const el = prev.find((e) => e.id === id);
+      if (!el) return prev;
+      if (axis === 'col') {
+        const clamped = Math.max(el.col, Math.min(PORT_COLUMNS - 1, newMax));
+        const rowSpanNow = el.rowSpan || 1;
+        for (let c = el.col + (el.colSpan || 1); c <= clamped; c++) {
+          for (let r = el.row; r < el.row + rowSpanNow; r++) {
+            if (prev.some((o) => o.id !== id && o.side === el.side && o.row === r && o.col === c)) return prev;
+          }
+        }
+        return prev.map((e) => (e.id === id ? { ...e, colSpan: clamped - el.col + 1 } : e));
+      } else {
+        const clamped = Math.max(el.row, Math.min(subRows - 1, newMax));
+        const colSpanNow = el.colSpan || 1;
+        for (let r = el.row + (el.rowSpan || 1); r <= clamped; r++) {
+          for (let c = el.col; c < el.col + colSpanNow; c++) {
+            if (prev.some((o) => o.id !== id && o.side === el.side && o.row === r && o.col === c)) return prev;
+          }
+        }
+        return prev.map((e) => (e.id === id ? { ...e, rowSpan: clamped - el.row + 1 } : e));
+      }
+    });
+  };
+
   const updateValue = (id: string, value: string) => {
     setElements((prev) => prev.map((e) => (e.id === id ? { ...e, value } : e)));
   };
@@ -307,6 +338,7 @@ export default function RackDeviceEditorDialog({
               onSelect={setSelectedId}
               onResizeGroup={resizeGroup}
               onResizeGroupVertical={(groupId, newMaxRow) => resizeGroupVertical(groupId, newMaxRow, rackUnits * SUB_ROWS_PER_U)}
+              onResizeElementSpan={(id, axis, newMax) => resizeElementSpan(id, axis, newMax, rackUnits * SUB_ROWS_PER_U)}
               readOnly={readOnly}
             />
           </div>

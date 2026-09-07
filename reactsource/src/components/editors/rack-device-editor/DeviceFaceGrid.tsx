@@ -36,6 +36,7 @@ export default function DeviceFaceGrid({
   onSelect,
   onResizeGroup,
   onResizeGroupVertical,
+  onResizeElementSpan,
   readOnly
 }: {
   side: Side;
@@ -45,6 +46,7 @@ export default function DeviceFaceGrid({
   onSelect: (id: string) => void;
   onResizeGroup: (groupId: string, newMaxCol: number) => void;
   onResizeGroupVertical: (groupId: string, newMaxRow: number) => void;
+  onResizeElementSpan: (id: string, axis: 'col' | 'row', newMax: number) => void;
   readOnly?: boolean;
 }) {
   const bySideElements = elements.filter((e) => e.side === side);
@@ -102,6 +104,7 @@ export default function DeviceFaceGrid({
           onSelect={onSelect}
           onResizeGroup={onResizeGroup}
           onResizeGroupVertical={onResizeGroupVertical}
+          onResizeElementSpan={onResizeElementSpan}
           readOnly={readOnly}
         />
       ))}
@@ -150,15 +153,19 @@ function buildBlocks(elements: FaceElement[]): Block[] {
     });
   }
   for (const e of singles) {
+    // Ports always span exactly one cell here (grouped ports took the
+    // branch above); text/icon elements carry their own span.
+    const colSpan = e.kind === 'port' ? 1 : e.colSpan || 1;
+    const rowSpan = e.kind === 'port' ? 1 : e.rowSpan || 1;
     blocks.push({
       key: e.id,
       groupId: e.groupId,
       members: [e],
       kind: e.kind,
       minCol: e.col,
-      maxCol: e.col,
+      maxCol: e.col + colSpan - 1,
       minRow: e.row,
-      maxRow: e.row
+      maxRow: e.row + rowSpan - 1
     });
   }
   return blocks;
@@ -187,6 +194,7 @@ function PortBlock({
   onSelect,
   onResizeGroup,
   onResizeGroupVertical,
+  onResizeElementSpan,
   readOnly
 }: {
   block: Block;
@@ -197,12 +205,14 @@ function PortBlock({
   onSelect: (id: string) => void;
   onResizeGroup: (groupId: string, newMaxCol: number) => void;
   onResizeGroupVertical: (groupId: string, newMaxRow: number) => void;
+  onResizeElementSpan: (id: string, axis: 'col' | 'row', newMax: number) => void;
   readOnly?: boolean;
 }) {
   const colSpan = block.maxCol - block.minCol + 1;
   const rowSpan = block.maxRow - block.minRow + 1;
   const fillsFullHeight = rowSpan >= subRows;
   const byCell = new Map(block.members.map((m) => [`${m.row}:${m.col}`, m]));
+  const isSelectedSingle = block.kind !== 'port' && block.members[0].id === selectedId;
 
   return (
     <div
@@ -211,8 +221,10 @@ function PortBlock({
         ...(fillsFullHeight
           ? { gridRow: `${block.minRow + 1} / span ${rowSpan}` }
           : { gridRow: '1 / -1', alignSelf: 'center', height: rowSpan * SUB_ROW_H }),
-        borderColor: selected ? '#3b82f6' : '#52525b',
-        backgroundColor: 'transparent',
+        borderColor: selected || isSelectedSingle ? '#3b82f6' : '#52525b',
+        // Ports float unboxed over the canvas; a text/icon element is its
+        // own opaque card (real markup: `bg-background` unconditionally).
+        backgroundColor: block.kind === 'port' ? 'transparent' : '#09090b',
         zIndex: 10
       }}
       className="relative rounded-sm border font-mono text-[8px]"
@@ -247,30 +259,38 @@ function PortBlock({
                   );
                 })
               )
-            : (
+            : block.kind === 'text' ? (
                 <button
                   type="button"
                   onClick={() => onSelect(block.members[0].id)}
-                  className="flex flex-col items-center justify-center gap-0 text-[#d4d4d8] hover:brightness-125"
+                  className="flex h-full w-full items-center justify-start px-2 text-left text-[#f4f4f5] hover:brightness-125"
                 >
-                  <ElementGlyph element={block.members[0]} />
+                  <span className="truncate font-mono text-[13px] leading-tight">{block.members[0].value || 'Text'}</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onSelect(block.members[0].id)}
+                  className="flex h-full w-full items-center justify-center text-[#f4f4f5] hover:brightness-125"
+                >
+                  <TbPhoto className="size-8" />
                 </button>
               )}
         </div>
       </div>
 
-      {block.kind === 'port' && !readOnly && (
+      {!readOnly && (
         <ResizeHandle
           axis="x"
           className="absolute top-0 -right-1.5 h-full w-3"
           cursor="cursor-ew-resize"
           icon={<TbChevronRight className="size-2" />}
           onStart={(startClientX) => {
-            const groupId = block.groupId!;
             const startMaxCol = block.maxCol;
             const onMove = (ev: PointerEvent) => {
               const deltaCols = Math.round((ev.clientX - startClientX) / 28);
-              onResizeGroup(groupId, startMaxCol + deltaCols);
+              if (block.kind === 'port') onResizeGroup(block.groupId!, startMaxCol + deltaCols);
+              else onResizeElementSpan(block.members[0].id, 'col', startMaxCol + deltaCols);
             };
             const onUp = () => {
               document.removeEventListener('pointermove', onMove);
@@ -281,18 +301,18 @@ function PortBlock({
           }}
         />
       )}
-      {block.kind === 'port' && !readOnly && (
+      {!readOnly && (
         <ResizeHandle
           axis="y"
           className="absolute -bottom-1.5 left-0 h-3 w-full"
           cursor="cursor-ns-resize"
           icon={<TbChevronDown className="size-2" />}
           onStart={(startClientY) => {
-            const groupId = block.groupId!;
             const startMaxRow = block.maxRow;
             const onMove = (ev: PointerEvent) => {
               const deltaRows = Math.round((ev.clientY - startClientY) / SUB_ROW_H);
-              onResizeGroupVertical(groupId, startMaxRow + deltaRows);
+              if (block.kind === 'port') onResizeGroupVertical(block.groupId!, startMaxRow + deltaRows);
+              else onResizeElementSpan(block.members[0].id, 'row', startMaxRow + deltaRows);
             };
             const onUp = () => {
               document.removeEventListener('pointermove', onMove);
@@ -334,16 +354,4 @@ function ResizeHandle({
       </div>
     </div>
   );
-}
-
-function ElementGlyph({ element }: { element: FaceElement }) {
-  if (element.kind === 'text') {
-    return (
-      <>
-        <TbTypography className="size-3" />
-        <span className="max-w-full truncate">{element.value || 'Text'}</span>
-      </>
-    );
-  }
-  return <TbPhoto className="size-3.5" />;
 }

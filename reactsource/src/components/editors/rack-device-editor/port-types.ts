@@ -78,6 +78,13 @@ export interface FaceElement {
   countingDirection?: CountingDirection;
   /** Per-port name override (ports) or the label text / icon id (text/icon elements). */
   value?: string;
+  /** Text/icon elements only. Unlike a port group (many FaceElements, one
+   *  per cell, dense rectangle), a single text/icon element IS the whole
+   *  block — resizing it grows its own span, it never spawns siblings.
+   *  Ports ignore these (their span always comes from the group
+   *  rectangle). Defaults to 1 when absent. */
+  colSpan?: number;
+  rowSpan?: number;
 }
 
 /** Droppable port columns — cloned from the real editor's own grid-template
