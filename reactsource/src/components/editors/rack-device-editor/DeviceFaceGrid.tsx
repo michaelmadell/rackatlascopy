@@ -238,6 +238,13 @@ function FaceCell({
           <ElementGlyph element={element} allElements={allElements} />
         </button>
       )}
+      {/* The two handles' hit-areas used to both cover their full edge
+       *  (right edge full height / bottom edge full width), overlapping in
+       *  the bottom-right corner — grabbing near there silently took
+       *  whichever handle paints on top instead of the one being aimed
+       *  for, most often eating a horizontal-resize attempt. Each is now
+       *  confined to the middle 60% of its own edge, leaving the corner to
+       *  neither, so they can't steal each other's drags. */}
       {showHandle && (
         <div
           onPointerDown={(e) => {
@@ -245,7 +252,8 @@ function FaceCell({
             onResizeStart(e.clientX);
           }}
           title="Drag to resize this port group"
-          className="absolute -right-1 top-0 z-10 h-full w-2 cursor-ew-resize"
+          style={{ top: '20%', height: '60%' }}
+          className="absolute -right-1 z-10 w-2 cursor-ew-resize"
         >
           <div className="absolute right-0 top-1/2 h-3 w-1 -translate-y-1/2 rounded-sm bg-blue-500" />
         </div>
@@ -257,8 +265,8 @@ function FaceCell({
             onVResizeStart(e.clientY);
           }}
           title="Drag to resize this port vertically"
-          style={{ top: (element!.rowSpan || 1) * SUB_ROW_H - 5 }}
-          className="absolute left-1/2 z-10 h-2 w-full -translate-x-1/2 cursor-ns-resize"
+          style={{ top: (element!.rowSpan || 1) * SUB_ROW_H - 5, left: '20%', width: '60%' }}
+          className="absolute z-10 h-2 cursor-ns-resize"
         >
           <div className="absolute left-1/2 bottom-0 h-1 w-3 -translate-x-1/2 rounded-sm bg-blue-500" />
         </div>
