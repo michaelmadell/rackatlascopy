@@ -37,6 +37,16 @@ describe('custom-rack-device routes', () => {
     expect(res.json().data.brand).toBe('Cisco')
   })
 
+  // library.tsx's table reads manufacturer/deviceType/height, not
+  // brand/type/rackUnits — same underlying columns, aliased.
+  it('also exposes manufacturer/deviceType/height, the names the Device Library page reads', async () => {
+    const res = await app.inject({ method: 'GET', url: `/custom-rack-device/${deviceId}`, headers: AUTH })
+    const doc = res.json().data
+    expect(doc.manufacturer).toBe('Cisco')
+    expect(doc.deviceType).toBe('switch')
+    expect(doc.height).toBe(1)
+  })
+
   it('rejects writes (read-only catalog)', async () => {
     const res = await app.inject({
       method: 'POST',

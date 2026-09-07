@@ -11,9 +11,13 @@ function rowToCustomerDoc(row: any): Record<string, unknown> {
     name: row.name,
     billing: row.billing_json ? JSON.parse(row.billing_json) : {},
     customDeviceTypes: row.custom_device_types_json ? JSON.parse(row.custom_device_types_json) : [],
+    // An array of { deviceType, prefix } (library.tsx:258 calls .find on it) —
+    // {} used to be the empty-state default here, which crashed the first
+    // real render of the Device Library page with "…prefixes?.find is not a
+    // function" the moment nothing had been saved yet.
     standardDeviceTypePrefixes: row.standard_device_type_prefixes_json
       ? JSON.parse(row.standard_device_type_prefixes_json)
-      : {}
+      : []
   }
 }
 
@@ -27,7 +31,7 @@ const patchCustomerBody = z
   .object({
     name: z.string().min(1).optional(),
     customDeviceTypes: z.array(z.unknown()).optional(),
-    standardDeviceTypePrefixes: z.union([z.record(z.unknown()), z.array(z.unknown())]).optional(),
+    standardDeviceTypePrefixes: z.array(z.unknown()).optional(),
     billing: z.record(z.unknown()).optional()
   })
   .strict()

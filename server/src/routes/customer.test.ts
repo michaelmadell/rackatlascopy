@@ -141,9 +141,13 @@ describe('customer routes', () => {
     expect(reread.json().data.customDeviceTypes).toEqual(customDeviceTypes)
   })
 
-  // library.tsx:294
+  // library.tsx:258/278/292/294 — an array of { deviceType, prefix }, not a
+  // map: the page calls .find/.filter on it directly.
   it('PATCH /customer/:id persists standardDeviceTypePrefixes', async () => {
-    const standardDeviceTypePrefixes = { rack: 'RK', switch: 'SW' }
+    const standardDeviceTypePrefixes = [
+      { deviceType: 'rack', prefix: 'RK' },
+      { deviceType: 'switch', prefix: 'SW' }
+    ]
     const res = await app.inject({
       method: 'PATCH',
       url: `/customer/${customerId}`,
@@ -154,6 +158,14 @@ describe('customer routes', () => {
 
     const reread = await app.inject({ method: 'GET', url: `/customer/${customerId}`, headers: AUTH })
     expect(reread.json().data.standardDeviceTypePrefixes).toEqual(standardDeviceTypePrefixes)
+  })
+
+  // The crash this test guards: before this field defaulted to `[]`, a
+  // freshly-seeded customer with no prefixes ever saved returned `{}`, and
+  // the Device Library page's `.find()` call on it threw on first render.
+  it('GET /customer/:id defaults standardDeviceTypePrefixes to an empty array, not {}', async () => {
+    const res = await app.inject({ method: 'GET', url: `/customer/${customerId}`, headers: AUTH })
+    expect(res.json().data.standardDeviceTypePrefixes).toEqual([])
   })
 
   it('PATCH /customer/:id rejects an unrecognized field rather than dropping it', async () => {

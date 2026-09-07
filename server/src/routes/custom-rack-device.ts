@@ -9,8 +9,14 @@ export function registerCustomRackDeviceRoutes(app: FastifyInstance, db: Databas
     columns: [
       { db: 'name', api: 'name' },
       { db: 'brand', api: 'brand' },
+      // The Device Library table (library.tsx:191/198/203) reads
+      // manufacturer/deviceType/height, not brand/type/rackUnits — same
+      // db columns, the names the real page actually uses.
+      { db: 'brand', api: 'manufacturer' },
       { db: 'type', api: 'type' },
+      { db: 'type', api: 'deviceType' },
       { db: 'rack_units', api: 'rackUnits' },
+      { db: 'rack_units', api: 'height' },
       { db: 'ports_count', api: 'portsCount' },
       { db: 'ports_json', api: 'ports', json: true }
     ],
