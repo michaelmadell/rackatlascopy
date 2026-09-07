@@ -1,21 +1,33 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent
+} from '@dnd-kit/core';
 import { useAuthenticatedApi } from '@/hooks/useAuthenticatedApi';
 import { Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/patchdocs-ui';
-import { TbTrash, TbX } from 'react-icons/tb';
+import { TbServer, TbTrash, TbX } from 'react-icons/tb';
+import RackGrid, { ROW_PX } from './RackGrid';
+import DevicePalette from './DevicePalette';
 
 /**
- * Rack elevation editor — a vertical stack of U-slots, click to place a
- * device (from the catalog) into an empty run of slots, click a placed
- * device to edit/delete it. No drag-and-drop (the real app's Rack Studio
- * editor has that; this is the click-based equivalent, same underlying
- * data model: `unit` = starting U position, `heightU` = how many it spans,
- * `rackId` = this rack's id).
+ * Rack elevation editor — drag a device from the catalog onto the rack to
+ * place it (creates it there), or drag a placed device onto a different
+ * slot to move it (updates its `unit`). `unit` is always the device's
+ * *bottom* occupied U (rack convention: U1 at the bottom); dropping anchors
+ * the device's *top* edge to the slot under the cursor, which is the
+ * intuitive way to drop something — so the target start is
+ * `hoveredUnit - heightU + 1`.
  *
- * Sub-device create/delete aren't covered by any prop the parent page
- * passes (only update/rack-delete are) — this component owns those two
- * directly via useAuthenticatedApi, invalidating the same query key the
- * parent's subDevices list is read from.
+ * Sub-device create/delete/move aren't covered by any prop the parent page
+ * passes (only update-by-id and whole-rack-delete are) — this component
+ * owns those directly via useAuthenticatedApi, invalidating the same query
+ * key the parent's subDevices list is read from.
  */
 export default function RackEditor({
   rack,
@@ -45,12 +57,21 @@ export default function RackEditor({
   const queryClient = useQueryClient();
 
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(initialSelectedDeviceId || null);
-  const [armedCatalogId, setArmedCatalogId] = useState<string>('');
-  const [placingAtUnit, setPlacingAtUnit] = useState<number | null>(null);
+  const [side, setSide] = useState<'front' | 'back'>('front');
+  const [activeDrag, setActiveDrag] = useState<{ kind: 'catalog' | 'existing'; device: any } | null>(null);
+  const [dropError, setDropError] = useState<string | null>(null);
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   useEffect(() => {
     setSelectedDeviceId(initialSelectedDeviceId || null);
   }, [initialSelectedDeviceId]);
+
+  useEffect(() => {
+    if (!dropError) return;
+    const t = setTimeout(() => setDropError(null), 3000);
+    return () => clearTimeout(t);
+  }, [dropError]);
 
   const heightU = rack?.heightU || 42;
   const tenantId = rack?.tenantId;
@@ -64,27 +85,6 @@ export default function RackEditor({
     queryClient.invalidateQueries({ queryKey: ['sub-devices-and-connections'] });
   };
 
-  const handlePlace = async (startUnit: number) => {
-    const catalogDevice = customRackDevices.find((d: any) => d._id === armedCatalogId);
-    if (!catalogDevice || !rack?._id || !tenantId) return;
-    await api.post(`/tenant/${tenantId}/device`, {
-      tenantId,
-      locationId: rack.locationId,
-      floorId: rack.floorId,
-      roomId: rack.roomId,
-      rackId: rack._id,
-      category: 'rack',
-      name: catalogDevice.name,
-      type: catalogDevice.type,
-      heightU: catalogDevice.rackUnits || 1,
-      unit: startUnit,
-      side: 'front'
-    });
-    setArmedCatalogId('');
-    setPlacingAtUnit(null);
-    invalidateSubDevices();
-  };
-
   const handleDeleteDevice = async (id: string) => {
     if (!tenantId) return;
     await api.delete(`/tenant/${tenantId}/device/${id}`);
@@ -92,98 +92,124 @@ export default function RackEditor({
     invalidateSubDevices();
   };
 
-  // Map every U row to the device occupying it (if any), and which row is
-  // that device's *first* row (so it renders once, spanning its height).
-  const rowOccupant = useMemo(() => {
-    const map = new Map<number, { device: any; isStart: boolean }>();
-    for (const device of subDevices) {
-      const start = device.unit || 1;
-      const span = device.heightU || 1;
-      for (let u = start; u < start + span; u++) {
-        map.set(u, { device, isStart: u === start });
+  const handleDragStart = (event: DragStartEvent) => {
+    const data = event.active.data.current as { kind: 'catalog' | 'existing'; device: any } | undefined;
+    if (data) setActiveDrag(data);
+  };
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const drag = activeDrag;
+    setActiveDrag(null);
+    if (!drag || !event.over || !rack?._id || !tenantId) return;
+
+    const hoveredUnit = (event.over.data.current as { unit: number }).unit;
+    const deviceHeightU =
+      drag.kind === 'catalog' ? drag.device.rackUnits || 1 : drag.device.heightU || 1;
+    const targetStart = hoveredUnit - deviceHeightU + 1;
+    const targetTop = hoveredUnit;
+
+    if (targetStart < 1 || targetTop > heightU) {
+      setDropError("Doesn't fit there — off the top or bottom of the rack.");
+      return;
+    }
+
+    const selfId = drag.kind === 'existing' ? drag.device._id : null;
+    for (const other of subDevices) {
+      if (other._id === selfId) continue;
+      const otherStart = other.unit || 1;
+      const otherTop = otherStart + (other.heightU || 1) - 1;
+      const overlaps = targetStart <= otherTop && otherStart <= targetTop;
+      if (overlaps) {
+        setDropError(`Overlaps ${other.name}.`);
+        return;
       }
     }
-    return map;
-  }, [subDevices]);
 
-  const rows = Array.from({ length: heightU }, (_, i) => i + 1);
+    if (drag.kind === 'catalog') {
+      const catalogDevice = drag.device;
+      await api.post(`/tenant/${tenantId}/device`, {
+        tenantId,
+        locationId: rack.locationId,
+        floorId: rack.floorId,
+        roomId: rack.roomId,
+        rackId: rack._id,
+        category: 'rack',
+        name: catalogDevice.name,
+        type: catalogDevice.type,
+        heightU: catalogDevice.rackUnits || 1,
+        unit: targetStart,
+        side
+      });
+    } else {
+      await onDeviceUpdate?.(drag.device._id, { unit: targetStart });
+    }
+    invalidateSubDevices();
+  };
+
+  const visibleSubDevices = subDevices.filter((d: any) => (d.side || 'front') === side);
   const selectedDevice = subDevices.find((d: any) => d._id === selectedDeviceId);
 
   return (
-    <div className="flex-1 flex bg-[#0c0c0e] text-[#f4f4f5] overflow-hidden">
-      {!readOnly && (
-        <div className="w-56 border-r border-[#27272a] p-3 overflow-y-auto space-y-1 shrink-0">
-          <p className="text-xs text-[#a1a1aa] mb-2">
-            {armedCatalogId ? 'Click an empty slot to place it' : 'Select a device, then click a slot'}
-          </p>
-          {customRackDevices.map((d: any) => (
-            <button
-              key={d._id}
-              type="button"
-              onClick={() => setArmedCatalogId(armedCatalogId === d._id ? '' : d._id)}
-              className={`w-full text-left px-2 py-1.5 rounded text-xs ${
-                armedCatalogId === d._id ? 'bg-[#27272a] text-[#f4f4f5]' : 'text-[#a1a1aa] hover:bg-[#18181b]'
-              }`}
-            >
-              {d.name} <span className="text-[#71717a]">({d.rackUnits || 1}U)</span>
-            </button>
-          ))}
-        </div>
-      )}
+    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <div className="flex-1 flex bg-[#0c0c0e] text-[#f4f4f5] overflow-hidden">
+        {!readOnly && <DevicePalette devices={customRackDevices} />}
 
-      <div className="flex-1 overflow-y-auto p-6 flex justify-center">
-        {isLoading ? (
-          <p className="text-xs text-[#a1a1aa]">Loading…</p>
-        ) : (
-          <div className="border border-[#27272a] rounded-md overflow-hidden w-full max-w-md">
-            {rows.map((u) => {
-              const occupant = rowOccupant.get(u);
-              if (occupant && !occupant.isStart) return null; // rendered as part of its start row
-              if (occupant) {
-                const device = occupant.device;
-                return (
-                  <button
-                    key={u}
-                    type="button"
-                    onClick={() => selectDevice(device._id)}
-                    style={{ height: `${(device.heightU || 1) * 22}px` }}
-                    className={`w-full flex items-center gap-2 px-2 text-xs border-b border-[#27272a] hover:bg-[#1c1c1f] ${
-                      selectedDeviceId === device._id ? 'bg-[#27272a]' : 'bg-[#141416]'
-                    }`}
-                  >
-                    <span className="text-[#71717a] w-6 shrink-0">U{u}</span>
-                    <span className="truncate">{device.name}</span>
-                  </button>
-                );
-              }
-              return (
-                <button
-                  key={u}
-                  type="button"
-                  disabled={readOnly}
-                  onClick={() => (armedCatalogId ? handlePlace(u) : setPlacingAtUnit(u))}
-                  className="w-full h-[22px] flex items-center gap-2 px-2 text-[10px] border-b border-[#1c1c1f] text-[#3f3f46] hover:bg-[#141416] hover:text-[#71717a]"
-                >
-                  <span className="w-6 shrink-0">U{u}</span>
-                  {armedCatalogId && placingAtUnit === null && <span>Click to place</span>}
-                </button>
-              );
-            })}
+        <div className="flex-1 overflow-y-auto p-6 flex flex-col items-center gap-3">
+          <div className="flex items-center gap-1 bg-[#18181b] border border-[#27272a] rounded-lg p-1">
+            {(['front', 'back'] as const).map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setSide(s)}
+                className={`px-4 py-1 rounded text-xs font-medium capitalize ${
+                  side === s ? 'bg-[#27272a] text-[#f4f4f5]' : 'text-[#a1a1aa]'
+                }`}
+              >
+                {s}
+              </button>
+            ))}
           </div>
-        )}
+
+          {dropError && <p className="text-xs text-red-400">{dropError}</p>}
+
+          {isLoading ? (
+            <p className="text-xs text-[#a1a1aa]">Loading…</p>
+          ) : (
+            <RackGrid
+              heightU={heightU}
+              devices={visibleSubDevices}
+              selectedDeviceId={selectedDeviceId}
+              onSelectDevice={selectDevice}
+              readOnly={readOnly}
+              draggingHeightU={activeDrag ? (activeDrag.kind === 'catalog' ? activeDrag.device.rackUnits || 1 : activeDrag.device.heightU || 1) : null}
+            />
+          )}
+        </div>
+
+        <RackSidePanel
+          rack={rack}
+          selectedDevice={selectedDevice}
+          readOnly={readOnly}
+          onRackUpdate={onRackUpdate}
+          onDeleteRack={onDeleteRack}
+          onDeviceUpdate={onDeviceUpdate}
+          onDeleteDevice={handleDeleteDevice}
+          onClose={() => selectDevice(null)}
+        />
       </div>
 
-      <RackSidePanel
-        rack={rack}
-        selectedDevice={selectedDevice}
-        readOnly={readOnly}
-        onRackUpdate={onRackUpdate}
-        onDeleteRack={onDeleteRack}
-        onDeviceUpdate={onDeviceUpdate}
-        onDeleteDevice={handleDeleteDevice}
-        onClose={() => selectDevice(null)}
-      />
-    </div>
+      <DragOverlay>
+        {activeDrag && (
+          <div
+            style={{ height: (activeDrag.kind === 'catalog' ? activeDrag.device.rackUnits || 1 : activeDrag.device.heightU || 1) * ROW_PX }}
+            className="flex items-center gap-1.5 rounded-sm border border-blue-400 bg-blue-500/30 px-2 text-[11px] text-[#f4f4f5] w-96"
+          >
+            <TbServer className="size-3.5 shrink-0" />
+            <span className="truncate">{activeDrag.device.name}</span>
+          </div>
+        )}
+      </DragOverlay>
+    </DndContext>
   );
 }
 
