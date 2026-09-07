@@ -29,7 +29,6 @@ describe('seed', () => {
 
     expect((db.prepare('SELECT COUNT(*) AS n FROM tenants').get() as any).n).toBe(1)
     expect((db.prepare('SELECT COUNT(*) AS n FROM locations').get() as any).n).toBe(1)
-    expect((db.prepare('SELECT COUNT(*) AS n FROM buildings').get() as any).n).toBe(1)
     expect((db.prepare('SELECT COUNT(*) AS n FROM floors').get() as any).n).toBe(1)
     expect((db.prepare('SELECT COUNT(*) AS n FROM rooms').get() as any).n).toBe(1)
     expect((db.prepare('SELECT COUNT(*) AS n FROM custom_rack_devices').get() as any).n).toBe(2)

@@ -119,19 +119,10 @@ export interface Floor {
   name: string;
   level: number;
   locationId: string;
-  buildingId?: string;
   rooms?: Room[];
   devices?: Device[];
   floorPlanImage?: string;
   bounds?: { width: number; height: number };
-}
-
-export interface Building {
-  _id: string;
-  id?: string;
-  name: string;
-  reference?: string;
-  locationId: string;
 }
 
 export interface Location {
