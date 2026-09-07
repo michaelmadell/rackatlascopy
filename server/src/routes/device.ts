@@ -4,6 +4,16 @@ import { registerCrudRoutes } from '../lib/crud-factory'
 import { ApiError } from '../lib/errors'
 
 const deviceColumns = [
+  // Read-only: `tenant_id` is already the scope column (always enforced from
+  // the URL, never the body — see crud-factory's ALWAYS_ALLOWED_BODY_KEYS).
+  // Adding it here too just so single-device reads (GET/POST/PATCH via the
+  // generic CRUD routes) carry `tenantId` in the response, matching what
+  // `deviceRowToDoc` below already gives the bespoke `/device/bulk` route —
+  // without it, a device fetched via `GET .../device/:id` had no tenantId at
+  // all, unlike one fetched via bulk. `readOnly: true` keeps `docToRow` from
+  // also treating it as writable, which would double up with the scope
+  // column in the INSERT/UPDATE.
+  { db: 'tenant_id', api: 'tenantId', readOnly: true },
   { db: 'name', api: 'name' },
   { db: 'label', api: 'label' },
   { db: 'reference', api: 'reference' },

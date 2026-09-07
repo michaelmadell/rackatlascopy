@@ -128,12 +128,36 @@ describe('registerCrudRoutes (scoped)', () => {
         { db: 'name', api: 'name' },
         { db: 'address', api: 'address' },
         { db: 'city', api: 'city' },
-        { db: 'country', api: 'country' }
+        { db: 'country', api: 'country' },
+        // Read-only alias of the scope column — see device.ts's `tenantId` for the real usage.
+        { db: 'tenant_id', api: 'tenantId', readOnly: true }
       ],
       scope: { column: 'tenant_id', param: 'tenantId' },
       sortableColumns: ['name'],
       defaultSort: 'name'
     })
+  })
+
+  it('a readOnly column is included in every response but never written, and does not collide with the scope column', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/tenant/tenant-a/location',
+      payload: { name: 'HQ', tenantId: 'spoofed' } // must not collide with the scope-injected tenant_id
+    })
+    expect(created.statusCode).toBe(200)
+    expect(created.json().data.tenantId).toBe('tenant-a') // the real scope, not the spoofed body value
+    const id = created.json().data._id
+
+    const patched = await app.inject({
+      method: 'PATCH',
+      url: `/tenant/tenant-a/location/${id}`,
+      payload: { name: 'HQ 2', tenantId: 'still-spoofed' }
+    })
+    expect(patched.statusCode).toBe(200)
+    expect(patched.json().data.tenantId).toBe('tenant-a')
+
+    const got = await app.inject({ method: 'GET', url: `/tenant/tenant-a/location/${id}` })
+    expect(got.json().data.tenantId).toBe('tenant-a')
   })
 
   it('supports create, list, get, patch, delete within a scope, and hides docs from other scopes', async () => {

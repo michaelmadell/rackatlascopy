@@ -8,6 +8,10 @@ export interface ColumnDef {
   db: string
   api: string
   json?: boolean
+  /** Included in every response (rowToDoc) but never written (docToRow skips it) — for a column
+   *  that's already managed another way (e.g. it's also the scope column) but still worth exposing
+   *  under a friendlier api name than making callers derive it themselves. */
+  readOnly?: boolean
 }
 
 export interface ScopeDef {
@@ -63,6 +67,7 @@ function rowToDoc(row: Record<string, unknown>, columns: ColumnDef[]): Record<st
 function docToRow(body: Record<string, unknown>, columns: ColumnDef[]): Record<string, unknown> {
   const row: Record<string, unknown> = {}
   for (const col of columns) {
+    if (col.readOnly) continue
     if (!(col.api in body)) continue
     const value = body[col.api]
     row[col.db] = col.json ? JSON.stringify(value ?? null) : value

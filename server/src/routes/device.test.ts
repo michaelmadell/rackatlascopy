@@ -202,6 +202,8 @@ describe('device routes', () => {
       payload: { name: 'D1', deviceType: 'switch', tenantId: 'tenant-2' }
     })
     expect(res.statusCode).toBe(200)
+    // Response reflects the real (URL) scope, not the spoofed body value.
+    expect(res.json().data.tenantId).toBe(TENANT_ID)
     const row = db.prepare('SELECT tenant_id FROM devices WHERE id = ?').get(res.json().data._id) as {
       tenant_id: string
     }
@@ -209,6 +211,23 @@ describe('device routes', () => {
 
     const listedUnderTenant2 = await app.inject({ method: 'GET', url: '/tenant/tenant-2/device', headers: AUTH })
     expect(listedUnderTenant2.json().data.totalDocs).toBe(0)
+  })
+
+  // A device fetched via GET /device/:id (not /device/bulk) used to have no
+  // tenantId at all — the rack editor derives the tenant scope for its own
+  // create/delete calls from this field, so a missing one silently broke
+  // every rack-mounted device placement.
+  it('GET /device/:id includes tenantId', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: `/tenant/${TENANT_ID}/device`,
+      headers: AUTH,
+      payload: { name: 'D1', deviceType: 'switch' }
+    })
+    const id = created.json().data._id
+
+    const got = await app.inject({ method: 'GET', url: `/tenant/${TENANT_ID}/device/${id}`, headers: AUTH })
+    expect(got.json().data.tenantId).toBe(TENANT_ID)
   })
 
   it('POST /device/:rackId/deactivate clears rackId on child devices', async () => {
