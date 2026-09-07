@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
+import { Link } from '@tanstack/react-router';
 import { Button, Input, Label } from '@/patchdocs-ui';
-import { TbTrash, TbX } from 'react-icons/tb';
+import { TbArrowRight, TbTrash, TbX } from 'react-icons/tb';
 
 export interface InfoSidebarProps {
   open?: boolean;
@@ -39,6 +40,8 @@ export default function InfoSidebar({
   roomData,
   deviceData,
   readOnly,
+  tenantId,
+  locationId,
   onUpdateFloor,
   onUpdateRoom,
   onUpdateDevice,
@@ -53,6 +56,8 @@ export default function InfoSidebar({
       <DeviceForm
         key={deviceData._id}
         device={deviceData}
+        tenantId={tenantId}
+        locationId={locationId}
         readOnly={readOnly}
         isSaving={isSaving}
         onUpdate={onUpdateDevice}
@@ -147,6 +152,8 @@ function FloorForm({
 
 function DeviceForm({
   device,
+  tenantId,
+  locationId,
   readOnly,
   isSaving,
   onUpdate,
@@ -154,6 +161,8 @@ function DeviceForm({
   onClose
 }: {
   device: any;
+  tenantId?: string;
+  locationId?: string;
   readOnly?: boolean;
   isSaving?: boolean;
   onUpdate?: (data: any) => Promise<boolean>;
@@ -202,6 +211,19 @@ function DeviceForm({
           disabled={readOnly}
         />
       </div>
+
+      {/* Racks get their own elevation editor (device placement, U-slots) —
+          a plain name/type/height form here isn't the real editing surface
+          for one, it's just enough to rename/relabel it inline. */}
+      {device.type === 'rack' && tenantId && locationId && (
+        <Link
+          to="/app/t/$tenantId/locations/$locationId/devices/$deviceId"
+          params={{ tenantId, locationId, deviceId: device._id }}
+          className="flex items-center justify-center gap-1.5 rounded-md bg-[#27272a] px-3 py-1.5 text-xs font-medium hover:bg-[#3f3f46]"
+        >
+          Open rack editor <TbArrowRight className="size-3.5" />
+        </Link>
+      )}
 
       {!readOnly && (
         <div className="flex gap-2 pt-2">

@@ -1426,6 +1426,8 @@ function LocationPage() {
           />
         </div>
         <InfoSidebar
+          tenantId={tenantId}
+          locationId={locationId}
           open={infoSidebarOpen}
           onToggle={() => {
             setInfoSidebarOpen(!infoSidebarOpen)

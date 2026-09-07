@@ -89,19 +89,19 @@ export function seed(db: Database.Database): void {
 
   const rackId = randomUUID()
   db.prepare(
-    `INSERT INTO devices (id, tenant_id, room_id, name, type, height_u, sub_devices_json, ports_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(rackId, tenantId, roomId, 'Rack 1', 'rack', 42, '[]', '[]')
+    `INSERT INTO devices (id, tenant_id, location_id, room_id, name, type, height_u, sub_devices_json, ports_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(rackId, tenantId, locationId, roomId, 'Rack 1', 'rack', 42, '[]', '[]')
 
   db.prepare(
-    `INSERT INTO devices (id, tenant_id, room_id, rack_id, name, type, unit, height_u, sub_devices_json, ports_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(randomUUID(), tenantId, roomId, rackId, 'Catalyst 2960-X 24TS-L', 'switch', 1, 1, '[]', '[]')
+    `INSERT INTO devices (id, tenant_id, location_id, room_id, rack_id, name, type, unit, height_u, sub_devices_json, ports_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(randomUUID(), tenantId, locationId, roomId, rackId, 'Catalyst 2960-X 24TS-L', 'switch', 1, 1, '[]', '[]')
 
   db.prepare(
-    `INSERT INTO devices (id, tenant_id, room_id, rack_id, name, type, unit, height_u, sub_devices_json, ports_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(randomUUID(), tenantId, roomId, rackId, 'Patch Panel 24 Port STP', 'patch-panel', 2, 1, '[]', '[]')
+    `INSERT INTO devices (id, tenant_id, location_id, room_id, rack_id, name, type, unit, height_u, sub_devices_json, ports_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(randomUUID(), tenantId, locationId, roomId, rackId, 'Patch Panel 24 Port STP', 'patch-panel', 2, 1, '[]', '[]')
 
   db.prepare(
     'INSERT INTO vlans (id, tenant_id, vlan_id, name, description, ports_json) VALUES (?, ?, ?, ?, ?, ?)'
