@@ -65,10 +65,19 @@ export function seed(db: Database.Database): void {
     'GB'
   )
 
+  const buildingId = randomUUID()
+  db.prepare('INSERT INTO buildings (id, tenant_id, location_id, name, reference) VALUES (?, ?, ?, ?, ?)').run(
+    buildingId,
+    tenantId,
+    locationId,
+    'Main Building',
+    'A'
+  )
+
   const floorId = randomUUID()
   db.prepare(
-    'INSERT INTO floors (id, tenant_id, location_id, name, level, bounds_json) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(floorId, tenantId, locationId, 'Ground Floor', 0, JSON.stringify({ width: 100, height: 80 }))
+    'INSERT INTO floors (id, tenant_id, location_id, building_id, name, level, bounds_json) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(floorId, tenantId, locationId, buildingId, 'Ground Floor', 0, JSON.stringify({ width: 100, height: 80 }))
 
   const roomId = randomUUID()
   db.prepare(

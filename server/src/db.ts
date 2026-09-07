@@ -52,6 +52,14 @@ function migrate(db: Database.Database): void {
       country TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS buildings (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL,
+      location_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      reference TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS floors (
       id TEXT PRIMARY KEY,
       tenant_id TEXT NOT NULL,
@@ -160,7 +168,7 @@ function migrate(db: Database.Database): void {
     latitude: 'REAL',
     longitude: 'REAL'
   })
-  addColumns(db, 'floors', { reference: 'TEXT', responsible_user_id: 'TEXT' })
+  addColumns(db, 'floors', { reference: 'TEXT', responsible_user_id: 'TEXT', building_id: 'TEXT' })
   addColumns(db, 'rooms', {
     reference: 'TEXT',
     responsible_user_id: 'TEXT',

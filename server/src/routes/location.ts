@@ -49,6 +49,19 @@ export function registerLocationRoutes(app: FastifyInstance, db: Database.Databa
     defaultSort: 'name'
   })
 
+  registerCrudRoutes(app, db, '/tenant/:tenantId/building', {
+    table: 'buildings',
+    scope,
+    columns: [
+      { db: 'name', api: 'name' },
+      { db: 'reference', api: 'reference' },
+      { db: 'location_id', api: 'locationId' }
+    ],
+    sortableColumns: ['name'],
+    defaultSort: 'name',
+    filterableColumns: ['locationId']
+  })
+
   registerCrudRoutes(app, db, '/tenant/:tenantId/floor', {
     table: 'floors',
     scope,
@@ -57,12 +70,13 @@ export function registerLocationRoutes(app: FastifyInstance, db: Database.Databa
       { db: 'reference', api: 'reference' },
       { db: 'level', api: 'level' },
       { db: 'location_id', api: 'locationId' },
+      { db: 'building_id', api: 'buildingId' },
       { db: 'floor_plan_image', api: 'floorPlanImage' },
       { db: 'bounds_json', api: 'bounds', json: true },
       { db: 'responsible_user_id', api: 'responsibleUserId' }
     ],
     sortableColumns: ['name', 'level'],
-    filterableColumns: ['locationId']
+    filterableColumns: ['locationId', 'buildingId']
   })
 
   app.get('/tenant/:tenantId/floor/:id/floor-plan', async (req) => {

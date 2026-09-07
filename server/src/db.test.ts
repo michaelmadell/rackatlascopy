@@ -11,6 +11,7 @@ describe('openDb', () => {
 
     expect(tables).toEqual([
       'announcements',
+      'buildings',
       'custom_rack_devices',
       'customers',
       'device_connections',
