@@ -33,22 +33,33 @@ export default function PortSettingsPanel({
   }
 
   if (element.kind !== 'port') {
+    // Real markup for a selected icon element: an "Icon Settings" card
+    // (same title-row + destructive-delete-button shape as "Port Group
+    // Settings" below), single "Icon" field, no second/right-hand panel.
+    // Text's own settings card wasn't directly observed — inferred as the
+    // same shape with a "Label" field, since that's the only other
+    // free-text element kind and the real editor visibly reuses this
+    // card style across every element kind.
+    const isIcon = element.kind === 'icon';
     return (
-      <div className="flex items-end gap-3 rounded-lg border border-[#27272a] bg-[#18181b] p-3">
-        <div className="flex-1">
-          <Label>{element.kind === 'text' ? 'Label' : 'Icon name'}</Label>
+      <div className="rounded-lg border border-[#27272a] bg-[#18181b] p-3">
+        <div className="mb-3 flex items-center justify-between">
+          <h4 className="text-xs font-semibold text-[#f4f4f5]">{isIcon ? 'Icon Settings' : 'Text Settings'}</h4>
+          {!readOnly && (
+            <Button variant="destructive" size="sm" onClick={() => onDelete(element)}>
+              <TbTrash className="size-3.5 mr-1" /> {isIcon ? 'Delete icon' : 'Delete text'}
+            </Button>
+          )}
+        </div>
+        <div className="max-w-xs">
+          <Label>{isIcon ? 'Icon' : 'Label'}</Label>
           <Input
             value={element.value || ''}
             onChange={(e: any) => onUpdateValue(element.id, e.target.value)}
-            placeholder={element.kind === 'text' ? 'e.g. Power' : 'e.g. fan'}
+            placeholder={isIcon ? 'e.g. fan' : 'e.g. Power'}
             disabled={readOnly}
           />
         </div>
-        {!readOnly && (
-          <Button variant="destructive" size="sm" onClick={() => onDelete(element)}>
-            <TbTrash className="size-4" />
-          </Button>
-        )}
       </div>
     );
   }
