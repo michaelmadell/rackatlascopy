@@ -5,7 +5,6 @@ import { registerCrudRoutes } from '../lib/crud-factory'
 export function registerCustomRackDeviceRoutes(app: FastifyInstance, db: Database.Database): void {
   registerCrudRoutes(app, db, '/custom-rack-device', {
     table: 'custom_rack_devices',
-    readOnly: true,
     columns: [
       { db: 'name', api: 'name' },
       { db: 'brand', api: 'brand' },

@@ -1,3 +1,18 @@
+/* Activates live Tailwind utility generation. Everything below this point
+ * was a frozen, pre-extracted snapshot of whatever utility classes the real
+ * app.patchdocs.io's original source happened to use (no @tailwind/@import
+ * directive anywhere in the project despite @tailwindcss/vite being
+ * installed and configured) — any class not already in that snapshot
+ * (grid-cols-5, bg-[#hex] arbitrary backgrounds, shadow-2xl, rounded-2xl,
+ * backdrop-blur-*, font-bold, named palette colors like bg-blue-500, etc.)
+ * silently had no effect anywhere in the app. theme.css + utilities.css
+ * only (no preflight.css) so this stays additive — new rules for classes
+ * that had none — without pulling in Tailwind's global element reset,
+ * which could shift existing layouts in ways this change isn't meant to.
+ */
+@import "tailwindcss/theme.css";
+@import "tailwindcss/utilities.css";
+
 .mapboxgl-map {
   -webkit-tap-highlight-color: #0000;
   font:

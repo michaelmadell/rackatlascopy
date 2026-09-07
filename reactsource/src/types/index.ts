@@ -25,6 +25,8 @@ export interface Customer {
     plan?: string;
     validUntil?: string;
   };
+  customDeviceTypes?: CustomDeviceType[];
+  standardDeviceTypePrefixes?: Array<{ deviceType: string; prefix: string }>;
 }
 
 export interface Tenant {
@@ -54,13 +56,32 @@ export interface CustomRackDevice {
   brand: string;
   type: string;
   rackUnits: number;
+  /** Same underlying columns as brand/type/rackUnits, under the names the
+   *  Device Library page (library.tsx) and Rack Device Editor actually
+   *  read — see server/src/routes/custom-rack-device.ts's column aliases. */
+  manufacturer?: string;
+  deviceType?: string;
+  height?: number;
   portsCount?: number;
   ports?: Array<{
+    id?: string;
     number: string;
     type: string;
     row?: number;
     col?: number;
+    /** Present on entries the Rack Device Editor wrote — a legacy/external
+     *  entry may only have number/type/row/col. */
+    kind?: 'port' | 'text' | 'icon';
+    side?: 'front' | 'back';
+    groupId?: string;
+    connectorType?: string;
+    idPrefix?: string;
+    countingDirection?: 'ltr' | 'rtl';
+    value?: string;
   }>;
+  /** Not yet computed by the backend — always empty/undefined today. Present so the
+   *  Device Library's "used by N devices" edit-impact flow type-checks against real usage. */
+  usedInDevices?: Array<{ _id: string; name: string; locationId?: string; rackId?: string }>;
   createdAt?: string;
   updatedAt?: string;
 }

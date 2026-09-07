@@ -47,13 +47,50 @@ describe('custom-rack-device routes', () => {
     expect(doc.height).toBe(1)
   })
 
-  it('rejects writes (read-only catalog)', async () => {
+  it('creates a catalog entry via the manufacturer/deviceType/height/ports aliases', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/custom-rack-device',
       headers: AUTH,
-      payload: { name: 'New' }
+      payload: {
+        name: 'New Switch',
+        manufacturer: 'Cisco',
+        deviceType: 'switch',
+        height: 2,
+        portsCount: 2,
+        ports: [
+          { number: '01', type: 'copper', row: 0, col: 0 },
+          { number: '02', type: 'copper', row: 0, col: 1 }
+        ]
+      }
     })
-    expect(res.statusCode).toBe(404) // no route registered for POST
+    expect(res.statusCode).toBe(200)
+    const doc = res.json().data
+    expect(doc.manufacturer).toBe('Cisco')
+    expect(doc.deviceType).toBe('switch')
+    expect(doc.height).toBe(2)
+    expect(doc.ports).toHaveLength(2)
+
+    const list = await app.inject({ method: 'GET', url: '/custom-rack-device', headers: AUTH })
+    expect(list.json().data.docs).toHaveLength(2)
+  })
+
+  it('updates a catalog entry', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/custom-rack-device/${deviceId}`,
+      headers: AUTH,
+      payload: { name: 'Renamed' }
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().data.name).toBe('Renamed')
+  })
+
+  it('deletes a catalog entry', async () => {
+    const res = await app.inject({ method: 'DELETE', url: `/custom-rack-device/${deviceId}`, headers: AUTH })
+    expect(res.statusCode).toBe(200)
+
+    const list = await app.inject({ method: 'GET', url: '/custom-rack-device', headers: AUTH })
+    expect(list.json().data.docs).toHaveLength(0)
   })
 })

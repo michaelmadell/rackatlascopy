@@ -92,10 +92,21 @@ export const Separator: React.FC<any> = ({ className = '', orientation = 'horizo
 );
 
 // --- DIALOG ---
+// backgroundColor/boxShadow/borderRadius/backdropFilter set inline below,
+// not via bg-black/75, backdrop-blur-xs, bg-[#141416], rounded-2xl,
+// shadow-2xl — this app's styles.css is a frozen, pre-extracted snapshot of
+// the real app's compiled Tailwind CSS (no @tailwind/@import directive, so
+// nothing here regenerates at build time) and none of those five classes
+// ever appeared in the real app's original source, so every dialog using
+// this shim was rendering with an invisible backdrop and a transparent,
+// unshadowed, square-cornered content box.
 export const Dialog: React.FC<any> = ({ open, onOpenChange, children }) => {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ backgroundColor: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)' }}
+    >
       <div className="relative" onClick={(e) => e.stopPropagation()}>
         {children}
       </div>
@@ -106,7 +117,11 @@ export const DialogTrigger: React.FC<any> = ({ children, onClick }) => (
   <div onClick={onClick} className="inline-block cursor-pointer">{children}</div>
 );
 export const DialogContent: React.FC<any> = ({ className = '', children, ...props }) => (
-  <div className={`w-full max-w-lg bg-[#141416] border border-[#27272a] rounded-2xl shadow-2xl p-6 text-left ${className}`} {...props}>
+  <div
+    className={`w-full max-w-lg border border-[#27272a] p-6 text-left ${className}`}
+    style={{ backgroundColor: '#141416', borderRadius: 16, boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)' }}
+    {...props}
+  >
     {children}
   </div>
 );
@@ -114,7 +129,7 @@ export const DialogHeader: React.FC<any> = ({ className = '', children }) => (
   <div className={`mb-4 flex flex-col space-y-1.5 ${className}`}>{children}</div>
 );
 export const DialogTitle: React.FC<any> = ({ className = '', children }) => (
-  <h2 className={`text-base font-bold text-[#f4f4f5] ${className}`}>{children}</h2>
+  <h2 className={`text-base font-semibold text-[#f4f4f5] ${className}`}>{children}</h2>
 );
 export const DialogDescription: React.FC<any> = ({ className = '', children }) => (
   <p className={`text-xs text-[#a1a1aa] ${className}`}>{children}</p>
@@ -172,27 +187,66 @@ export const PopoverContent: React.FC<any> = ({ className = '', children, align 
 };
 
 // --- SELECT ---
-export const Select: React.FC<any> = ({ value, onValueChange, children }) => (
-  <div className="relative inline-block w-full">{children}</div>
-);
-export const SelectTrigger: React.FC<any> = ({ className = '', children, ...props }) => (
-  <div className={`flex items-center justify-between px-3 py-1.5 rounded-lg bg-[#18181b] border border-[#27272a] text-xs text-[#f4f4f5] cursor-pointer ${className}`} {...props}>
-    {children}
-  </div>
-);
-export const SelectValue: React.FC<any> = ({ placeholder, children }) => (
-  <span>{children || placeholder}</span>
-);
-export const SelectContent: React.FC<any> = ({ className = '', children }) => (
-  <div className={`mt-1 rounded-lg bg-[#18181b] border border-[#27272a] p-1 shadow-lg ${className}`}>
-    {children}
-  </div>
-);
-export const SelectItem: React.FC<any> = ({ value, className = '', children, ...props }) => (
-  <div className={`px-2 py-1.5 rounded text-xs hover:bg-[#27272a] text-[#f4f4f5] cursor-pointer ${className}`} {...props}>
-    {children}
-  </div>
-);
+// Was previously non-interactive: SelectContent always rendered and
+// SelectItem never called onValueChange, so `value`/`onValueChange` on
+// <Select> were dead props everywhere they're used. Wired up as an
+// open/close + selection context, same pattern as TabsContext below.
+export const SelectContext = createContext<{
+  value: any
+  onValueChange: (v: any) => void
+  isOpen: boolean
+  setIsOpen: (v: boolean) => void
+  disabled?: boolean
+}>({ value: undefined, onValueChange: () => {}, isOpen: false, setIsOpen: () => {} });
+export const Select: React.FC<any> = ({ value, onValueChange, disabled, children }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  return (
+    <SelectContext.Provider value={{ value, onValueChange: onValueChange || (() => {}), isOpen, setIsOpen, disabled }}>
+      <div className="relative inline-block w-full">{children}</div>
+    </SelectContext.Provider>
+  );
+};
+export const SelectTrigger: React.FC<any> = ({ className = '', children, ...props }) => {
+  const { isOpen, setIsOpen, disabled } = useContext(SelectContext);
+  return (
+    <div
+      onClick={() => !disabled && setIsOpen(!isOpen)}
+      className={`flex items-center justify-between px-3 py-1.5 rounded-lg bg-[#18181b] border border-[#27272a] text-xs text-[#f4f4f5] ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${className}`}
+      {...props}
+    >
+      {children}
+    </div>
+  );
+};
+export const SelectValue: React.FC<any> = ({ placeholder, children }) => {
+  const { value } = useContext(SelectContext);
+  const shown = children ?? value;
+  return <span className={shown ? '' : 'text-[#71717a]'}>{shown || placeholder}</span>;
+};
+export const SelectContent: React.FC<any> = ({ className = '', children }) => {
+  const { isOpen } = useContext(SelectContext);
+  if (!isOpen) return null;
+  return (
+    <div className={`absolute z-10 mt-1 max-h-60 w-full overflow-y-auto rounded-lg bg-[#18181b] border border-[#27272a] p-1 shadow-lg ${className}`}>
+      {children}
+    </div>
+  );
+};
+export const SelectItem: React.FC<any> = ({ value, className = '', children, ...props }) => {
+  const { value: selected, onValueChange, setIsOpen } = useContext(SelectContext);
+  return (
+    <div
+      onClick={() => {
+        onValueChange(value);
+        setIsOpen(false);
+      }}
+      className={`px-2 py-1.5 rounded text-xs cursor-pointer hover:bg-[#27272a] ${selected === value ? 'bg-[#27272a] text-[#f4f4f5]' : 'text-[#d4d4d8]'} ${className}`}
+      {...props}
+    >
+      {children}
+    </div>
+  );
+};
 export const SelectGroup: React.FC<any> = ({ children }) => <div>{children}</div>;
 export const SelectLabel: React.FC<any> = ({ children }) => <div className="px-2 py-1 text-[10px] text-[#71717a] uppercase font-bold">{children}</div>;
 
