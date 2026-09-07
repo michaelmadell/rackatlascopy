@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 export type Theme = 'dark' | 'light' | 'system';
 
 export type DeviceCategory = 'floor' | 'rack';
@@ -13,6 +15,8 @@ export interface User {
 }
 
 export interface Customer {
+  tax: any;
+  address: any;
   _id: string;
   id?: string;
   name: string;
@@ -24,6 +28,7 @@ export interface Customer {
 }
 
 export interface Tenant {
+  reference: string;
   _id: string;
   id?: string;
   name: string;
@@ -114,10 +119,19 @@ export interface Floor {
   name: string;
   level: number;
   locationId: string;
+  buildingId?: string;
   rooms?: Room[];
   devices?: Device[];
   floorPlanImage?: string;
   bounds?: { width: number; height: number };
+}
+
+export interface Building {
+  _id: string;
+  id?: string;
+  name: string;
+  reference?: string;
+  locationId: string;
 }
 
 export interface Location {
@@ -155,6 +169,11 @@ export interface Wlan {
 }
 
 export interface SearchResult {
+  ssid: ReactNode;
+  reference: ReactNode;
+  fullReference: string;
+  networkNumber: ReactNode;
+  deviceType: string;
   _id: string;
   name: string;
   type: string;

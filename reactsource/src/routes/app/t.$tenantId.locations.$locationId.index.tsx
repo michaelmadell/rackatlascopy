@@ -38,7 +38,7 @@ import {
 } from '@/components/editors/floor-editor/utilities'
 import { getLocale } from '@/paraglide/runtime'
 import * as m from '@/paraglide/messages'
-import type { Floor, Location, Room, Device, DeviceConnection, PermissionsCheckResult } from '@/types'
+import type { Floor, Location, Room, Device, DeviceConnection, PermissionsCheckResult, Building } from '@/types'
 import type { InfoSidebarProps } from '@/components/editors/floor-editor/components/InfoSidebar'
 
 const ManageBuildingConnections = lazy(() => import('@/components/editors/common/ManageBuildingConnections'))
@@ -99,6 +99,7 @@ function LocationPage() {
 
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null)
   const [selectedDevice, setSelectedDevice] = useState<string | null>(null)
+  const [selectedBuildingId, setSelectedBuildingId] = useState<string | null>(null)
   const [previewSettings, setPreviewSettings] = useState<{ opacity: number; contrast: number } | null>(null)
   const [isMeasuring, setIsMeasuring] = useState(false)
   const [showAddConnectionDialog, setShowAddConnectionDialog] = useState(false)
@@ -152,6 +153,36 @@ function LocationPage() {
         .get(`/tenant/${tenantId}/floor?locationId=${locationId}&sort=level&limit=250&select=_id,reference,level`)
         .then((res) => res.data?.data?.docs as Pick<Floor, '_id' | 'reference' | 'level'>[] | undefined)
   })
+
+  // Get buildings for this location — Location -> Building -> Floor -> Room -> Device
+  const buildingsQuery = useQuery({
+    queryKey: ['buildings', tenantId, locationId],
+    enabled: billingStatus !== 'blocked',
+    queryFn: () =>
+      api
+        .get(`/tenant/${tenantId}/building?locationId=${locationId}&limit=250`)
+        .then((res) => (res.data?.data?.docs || []) as Building[])
+  })
+
+  const handleCreateBuilding = async (data: { name: string; reference?: string }): Promise<boolean> => {
+    if (!locationId || !tenantId) return false
+    try {
+      const response = await api.post(`/tenant/${tenantId}/building`, {
+        tenantId,
+        locationId,
+        name: data.name,
+        reference: data.reference
+      })
+      toast.success(`Building ${m.created().toLowerCase()}`)
+      await queryClient.invalidateQueries({ queryKey: ['buildings', tenantId, locationId] })
+      if (response.data?.data?._id) {
+        setSelectedBuildingId(response.data.data._id)
+      }
+      return true
+    } catch (_error) {
+      return false
+    }
+  }
 
   // Get selected floor
   const floorQuery = useQuery({
@@ -651,7 +682,12 @@ function LocationPage() {
   }
 
   // Handle floor creation
-  const handleCreateFloor = async (data: { reference: string; name?: string; level: number }): Promise<boolean> => {
+  const handleCreateFloor = async (data: {
+    reference: string
+    name?: string
+    level: number
+    buildingId?: string
+  }): Promise<boolean> => {
     if (!locationId || !tenantId) return false
     try {
       const response = await api.post(`/tenant/${tenantId}/floor`, {
@@ -660,6 +696,7 @@ function LocationPage() {
         name: data.name,
         reference: data.reference,
         level: data.level,
+        ...(data.buildingId ? { buildingId: data.buildingId } : {}),
         ...(locationQuery.data?.data?.responsibleUserId
           ? { responsibleUserId: locationQuery.data.data.responsibleUserId }
           : {})
@@ -1317,6 +1354,13 @@ function LocationPage() {
           <FloorSelector
             floors={floorsQuery.data || []}
             currentFloorId={floorId}
+            onSelectFloor={(id: string) =>
+              navigate({ search: (prev) => ({ ...prev, floorId: id, roomId: undefined, deviceId: undefined }) })
+            }
+            buildings={buildingsQuery.data || []}
+            selectedBuildingId={selectedBuildingId}
+            onSelectBuilding={setSelectedBuildingId}
+            onCreateBuilding={handleCreateBuilding}
             rooms={rooms}
             devices={floorDevices}
             selectedRoomId={selectedRoom}
