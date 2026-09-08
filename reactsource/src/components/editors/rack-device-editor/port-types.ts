@@ -1,15 +1,4 @@
-import {
-  TbPlugConnected,
-  TbWaveSine,
-  TbDisc,
-  TbUsb,
-  TbDeviceUsb,
-  TbDeviceTv,
-  TbVideo,
-  TbDeviceDesktop,
-  TbMouse,
-  TbHeadphones
-} from 'react-icons/tb';
+import { CopperIcon, FiberIcon, SfpIcon, UsbAIcon, UsbCIcon, HdmiIcon, DpIcon, VgaIcon, Ps2Icon, AudioIcon } from './port-icons';
 import type { IconType } from 'react-icons';
 
 export interface PortTypeDef {
@@ -21,19 +10,21 @@ export interface PortTypeDef {
 }
 
 /** The toolbar's "Port Types" palette — cloned from app.patchdocs.io's Rack
- *  Device Editor. Connector-variant lists are a best-effort match (the real
- *  set per type wasn't fully exhaustible), not a verified 1:1 copy. */
+ *  Device Editor. Icons are the real editor's own bespoke per-type SVGs
+ *  (see port-icons.tsx), copied verbatim from a real pasted DOM dump.
+ *  Connector-variant lists are a best-effort match (the real set per type
+ *  wasn't fully exhaustible), not a verified 1:1 copy. */
 export const PORT_TYPES: PortTypeDef[] = [
-  { id: 'copper', label: 'Copper', icon: TbPlugConnected, connectors: ['RJ45', 'RJ11'] },
-  { id: 'fiber', label: 'Fiber', icon: TbWaveSine, connectors: ['LC', 'SC'] },
-  { id: 'sfp', label: 'SFP', icon: TbDisc, connectors: ['SFP', 'SFP+'] },
-  { id: 'usb-a', label: 'USB-A', icon: TbUsb, connectors: ['USB-A'] },
-  { id: 'usb-c', label: 'USB-C', icon: TbDeviceUsb, connectors: ['USB-C'] },
-  { id: 'hdmi', label: 'HDMI', icon: TbDeviceTv, connectors: ['HDMI'] },
-  { id: 'dp', label: 'DP', icon: TbVideo, connectors: ['DisplayPort'] },
-  { id: 'vga', label: 'VGA', icon: TbDeviceDesktop, connectors: ['VGA'] },
-  { id: 'ps2', label: 'PS/2', icon: TbMouse, connectors: ['PS/2'] },
-  { id: 'audio', label: 'Audio', icon: TbHeadphones, connectors: ['3.5mm', '6.35mm'] }
+  { id: 'copper', label: 'Copper', icon: CopperIcon, connectors: ['RJ45', 'RJ11'] },
+  { id: 'fiber', label: 'Fiber', icon: FiberIcon, connectors: ['LC', 'SC'] },
+  { id: 'sfp', label: 'SFP', icon: SfpIcon, connectors: ['SFP', 'SFP+'] },
+  { id: 'usb-a', label: 'USB-A', icon: UsbAIcon, connectors: ['USB-A'] },
+  { id: 'usb-c', label: 'USB-C', icon: UsbCIcon, connectors: ['USB-C'] },
+  { id: 'hdmi', label: 'HDMI', icon: HdmiIcon, connectors: ['HDMI'] },
+  { id: 'dp', label: 'DP', icon: DpIcon, connectors: ['DisplayPort'] },
+  { id: 'vga', label: 'VGA', icon: VgaIcon, connectors: ['VGA'] },
+  { id: 'ps2', label: 'PS/2', icon: Ps2Icon, connectors: ['PS/2'] },
+  { id: 'audio', label: 'Audio', icon: AudioIcon, connectors: ['3.5mm', '6.35mm'] }
 ];
 
 export function getPortTypeDef(id: string): PortTypeDef | undefined {
