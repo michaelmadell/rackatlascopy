@@ -15,10 +15,12 @@ import { useAuthenticatedApi } from '@/hooks/useAuthenticatedApi';
 import { Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/patchdocs-ui';
 import { TbTrash, TbX } from 'react-icons/tb';
 import type { FaceElement, DeviceConnection } from '@/types';
+import { STANDARD_DEVICE_TYPES } from '@/lib/device-constants';
 import { computePortNumber } from '../rack-device-editor/layout-utils';
+import RackDeviceEditorDialog from '../rack-device-editor/Dialog';
 import RackGrid, { ROW_PX, type HoverRange } from './RackGrid';
 import DevicePalette from './DevicePalette';
-import AddDeviceModal from './AddDeviceModal';
+import AddDeviceDialog from './AddDeviceDialog';
 import DevicePortsPanel from './DevicePortsPanel';
 import ConnectPortDialog from './ConnectPortDialog';
 import { getDeviceVisual } from './device-icon';
@@ -33,11 +35,15 @@ function snapshotElements(templatePorts: FaceElement[] | undefined): FaceElement
   return (templatePorts || []).map((el) => ({ ...el, id: crypto.randomUUID() }));
 }
 
-type DragPayload = { kind: 'catalog' | 'existing'; device: any };
+// Dragging a palette chip carries just a *category* now — real editor's own
+// palette lists device-type categories (Cable Manager, Switch, ...), not
+// individual catalog devices; which specific device gets placed is picked
+// afterward in AddDeviceDialog (see handleDragEnd/pendingPlacement below).
+type DragPayload = { kind: 'category'; category: string } | { kind: 'existing'; device: any };
 
 /** Repositioning a placed device only ever moves it up/down its own rack
  *  column — locking the drag to the vertical axis makes that obvious and
- *  removes the wobble of a freely-tracked cursor. A fresh catalog item still
+ *  removes the wobble of a freely-tracked cursor. A fresh category chip still
  *  needs to travel sideways from the palette into the rack, so the lock
  *  only applies to `kind: 'existing'` drags. */
 const lockExistingToVerticalAxis: Modifier = ({ transform, active }) => {
@@ -49,9 +55,12 @@ const lockExistingToVerticalAxis: Modifier = ({ transform, active }) => {
 
 /** Shared by the live hover preview (onDragMove) and the actual commit
  *  (onDragEnd) so the highlighted footprint and the drop outcome can never
- *  disagree with each other. */
+ *  disagree with each other. A category chip's eventual height isn't known
+ *  until a specific device is picked in AddDeviceDialog, so drag/hover uses
+ *  a 1U placeholder — handleInsertPendingDevice re-validates against the
+ *  device actually picked before creating it. */
 function resolveDrop(drag: DragPayload, hoveredUnit: number, heightU: number, subDevices: any[]) {
-  const deviceHeightU = drag.kind === 'catalog' ? drag.device.rackUnits || 1 : drag.device.heightU || 1;
+  const deviceHeightU = drag.kind === 'existing' ? drag.device.heightU || 1 : 1;
   const targetStart = hoveredUnit - deviceHeightU + 1;
   const targetTop = hoveredUnit;
 
@@ -142,8 +151,12 @@ export default function RackEditor({
   const [activeDrag, setActiveDrag] = useState<DragPayload | null>(null);
   const [hoverRange, setHoverRange] = useState<HoverRange | null>(null);
   const [dropError, setDropError] = useState<string | null>(null);
-  const [pendingPlacement, setPendingPlacement] = useState<{ device: any; targetStart: number } | null>(null);
+  const [pendingPlacement, setPendingPlacement] = useState<{ category: string; targetStart: number } | null>(null);
   const [inserting, setInserting] = useState(false);
+  // "+ Create Custom Device" inside AddDeviceDialog jumps here — the Device
+  // Library's own editor, pre-seeded with pendingPlacement's category — and
+  // back once saved (see handleCustomDeviceCreated).
+  const [creatingCustomDevice, setCreatingCustomDevice] = useState(false);
   // The port a Connect Port dialog is currently open for — real editor's
   // own connect flow (verified against a screen recording): clicking a
   // port opens a "Connect Port: <Device>/<Port>" dialog with a searchable
@@ -256,12 +269,12 @@ export default function RackEditor({
       return;
     }
 
-    if (drag.kind === 'catalog') {
-      // New devices go through a confirmation step (AddDeviceModal), matching
-      // the real app — dropping just stages the placement; nothing is
-      // created until the user hits "Insert device". Repositioning an
-      // already-placed device (the `else` branch) stays instant.
-      setPendingPlacement({ device: drag.device, targetStart });
+    if (drag.kind === 'category') {
+      // A category chip only stages *where* — which specific device goes
+      // there is picked next in AddDeviceDialog (handleInsertDevice below).
+      // Real app's own flow: dropping a category never creates anything by
+      // itself.
+      setPendingPlacement({ category: drag.category, targetStart });
     } else {
       await onDeviceUpdate?.(drag.device._id, { unit: targetStart });
       invalidateSubDevices();
@@ -273,11 +286,33 @@ export default function RackEditor({
     setHoverRange(null);
   };
 
-  const handleInsertPendingDevice = async () => {
+  // AddDeviceDialog's own resolveDrop-style re-check: the drag/hover phase
+  // assumed a 1U placeholder (a category chip's real height isn't known
+  // until a device is picked), so the picked device's *actual* height has
+  // to be validated against the same target slot before it's created —
+  // it may no longer fit.
+  const handleInsertDevice = async (pickedDevice: any) => {
     if (!pendingPlacement || !rack?._id || !tenantId) return;
+    const pickedHeightU = pickedDevice.rackUnits || 1;
+    const targetTop = pendingPlacement.targetStart + pickedHeightU - 1;
+    if (pendingPlacement.targetStart < 1 || targetTop > heightU) {
+      setDropError("That device doesn't fit there — off the top or bottom of the rack.");
+      setPendingPlacement(null);
+      return;
+    }
+    for (const other of subDevices) {
+      const otherStart = other.unit || 1;
+      const otherTop = otherStart + (other.heightU || 1) - 1;
+      if (pendingPlacement.targetStart <= otherTop && otherStart <= targetTop) {
+        setDropError(`Overlaps ${other.name}.`);
+        setPendingPlacement(null);
+        return;
+      }
+    }
+
     setInserting(true);
     try {
-      const catalogDevice = pendingPlacement.device;
+      const isBuiltin = typeof pickedDevice._id === 'string' && pickedDevice._id.startsWith('builtin-');
       await api.post(`/tenant/${tenantId}/device`, {
         tenantId,
         locationId: rack.locationId,
@@ -285,22 +320,33 @@ export default function RackEditor({
         roomId: rack.roomId,
         rackId: rack._id,
         category: 'rack',
-        name: catalogDevice.name,
-        type: catalogDevice.type,
-        heightU: catalogDevice.rackUnits || 1,
+        name: pickedDevice.name,
+        type: pickedDevice.type,
+        heightU: pickedHeightU,
         unit: pendingPlacement.targetStart,
         side,
-        // Links this placed device back to the Device Library entry it came
-        // from, with its own frozen copy of that entry's port layout — see
-        // snapshotElements above.
-        customRackDeviceId: catalogDevice._id,
-        elements: snapshotElements(catalogDevice.ports)
+        // A builtin catalog entry (no real Device Library row behind it)
+        // never claims customRackDeviceId — only a real CustomRackDevice
+        // pick does, with its own frozen copy of that entry's port
+        // layout (see snapshotElements above).
+        customRackDeviceId: isBuiltin ? undefined : pickedDevice._id,
+        elements: snapshotElements(pickedDevice.ports)
       });
       invalidateSubDevices();
       setPendingPlacement(null);
     } finally {
       setInserting(false);
     }
+  };
+
+  const handleCustomDeviceCreated = () => {
+    queryClient.invalidateQueries({ queryKey: ['custom-rack-devices'] });
+    setCreatingCustomDevice(false);
+    // The new device now exists in the catalog but AddDeviceDialog's own
+    // list snapshot won't include it until that query refetches — closing
+    // pendingPlacement too rather than leaving a stale dialog open; the
+    // user re-drags the category to place it, now showing up in the list.
+    setPendingPlacement(null);
   };
 
   const visibleSubDevices = subDevices.filter((d: any) => (d.side || 'front') === side);
@@ -325,7 +371,7 @@ export default function RackEditor({
       onDragCancel={handleDragCancel}
     >
       <div className="flex-1 flex bg-[#0c0c0e] text-[#f4f4f5] overflow-hidden">
-        {!readOnly && <DevicePalette devices={customRackDevices} />}
+        {!readOnly && <DevicePalette />}
 
         <div className="flex-1 overflow-y-auto p-6 flex flex-col items-center gap-3">
           <div className="flex items-center gap-3">
@@ -418,19 +464,42 @@ export default function RackEditor({
         {activeDrag && <DragGhost drag={activeDrag} />}
       </DragOverlay>
 
-      <AddDeviceModal
-        open={!!pendingPlacement}
-        device={pendingPlacement?.device ?? null}
+      <AddDeviceDialog
+        open={!!pendingPlacement && !creatingCustomDevice}
+        category={pendingPlacement?.category ?? null}
+        categoryLabel={STANDARD_DEVICE_TYPES.rack.find((c) => c.id === pendingPlacement?.category)?.label() ?? ''}
+        customRackDevices={customRackDevices}
+        onInsert={handleInsertDevice}
+        onCreateCustom={() => setCreatingCustomDevice(true)}
         onClose={() => setPendingPlacement(null)}
-        onInsert={handleInsertPendingDevice}
         inserting={inserting}
+      />
+
+      <RackDeviceEditorDialog
+        open={creatingCustomDevice}
+        onOpenChange={(next: boolean) => !next && setCreatingCustomDevice(false)}
+        initialData={pendingPlacement ? ({ deviceType: pendingPlacement.category } as any) : undefined}
+        onCreated={handleCustomDeviceCreated}
       />
     </DndContext>
   );
 }
 
 function DragGhost({ drag }: { drag: DragPayload }) {
-  const heightU = drag.kind === 'catalog' ? drag.device.rackUnits || 1 : drag.device.heightU || 1;
+  if (drag.kind === 'category') {
+    const label = STANDARD_DEVICE_TYPES.rack.find((c) => c.id === drag.category)?.label() ?? drag.category;
+    const { Icon, color } = getDeviceVisual(label);
+    return (
+      <div
+        style={{ height: ROW_PX, width: 400, borderLeftColor: color }}
+        className="flex cursor-grabbing items-center gap-1.5 overflow-hidden rounded-sm border border-l-[3px] border-blue-400 bg-[#202024]/95 px-2 text-left shadow-2xl shadow-black/60 ring-1 ring-blue-400/40"
+      >
+        <Icon className="size-3.5 shrink-0" style={{ color }} />
+        <span className="min-w-0 flex-1 truncate text-[11px] text-[#f4f4f5]">{label}</span>
+      </div>
+    );
+  }
+  const heightU = drag.device.heightU || 1;
   const { Icon, color } = getDeviceVisual(drag.device.type);
   return (
     <div

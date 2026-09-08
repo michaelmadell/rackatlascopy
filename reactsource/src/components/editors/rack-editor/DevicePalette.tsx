@@ -1,29 +1,33 @@
 import { useDraggable } from '@dnd-kit/core';
-import { TbGripVertical } from 'react-icons/tb';
+import { STANDARD_DEVICE_TYPES } from '@/lib/device-constants';
 import { getDeviceVisual } from './device-icon';
 
 /**
- * Drag source: catalog devices. Drop one onto RackGrid to create a new
- * rack-mounted device there (Editor.tsx's onDragEnd does the actual create).
+ * Drag source: device-type *categories* (Cable Manager, Firewall,
+ * Switch, ...) — cloned from a real screen recording, which showed the
+ * left palette listing categories, not individual catalog devices.
+ * Dropping one onto RackGrid opens AddDeviceDialog scoped to that
+ * category (search + a built-in/custom device list + preview), which is
+ * where a specific device actually gets picked — see Editor.tsx's
+ * handleDragEnd.
  */
-export default function DevicePalette({ devices }: { devices: any[] }) {
+export default function DevicePalette() {
   return (
     <div className="w-56 border-r border-[#27272a] p-3 overflow-y-auto space-y-1 shrink-0">
       <p className="text-xs text-[#a1a1aa] mb-2">Drag a device onto the rack</p>
-      {devices.map((d: any) => (
-        <PaletteItem key={d._id} device={d} />
+      {STANDARD_DEVICE_TYPES.rack.map((category) => (
+        <CategoryItem key={category.id} id={category.id} label={category.label()} />
       ))}
-      {devices.length === 0 && <p className="text-xs text-[#52525b]">No devices in the catalog yet.</p>}
     </div>
   );
 }
 
-function PaletteItem({ device }: { device: any }) {
+function CategoryItem({ id, label }: { id: string; label: string }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: `catalog-${device._id}`,
-    data: { kind: 'catalog', device }
+    id: `category-${id}`,
+    data: { kind: 'category', category: id }
   });
-  const { Icon, color } = getDeviceVisual(device.type);
+  const { Icon, color } = getDeviceVisual(label);
 
   return (
     <div
@@ -34,13 +38,8 @@ function PaletteItem({ device }: { device: any }) {
         isDragging ? 'opacity-40' : ''
       }`}
     >
-      <TbGripVertical className="size-3.5 shrink-0 text-[#52525b]" />
       <Icon className="size-3.5 shrink-0" style={{ color }} />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate">{device.name}</span>
-        {device.brand && <span className="block truncate text-[10px] text-[#52525b]">{device.brand}</span>}
-      </span>
-      <span className="shrink-0 rounded bg-[#0c0c0e]/60 px-1 text-[10px] text-[#71717a]">{device.rackUnits || 1}U</span>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
     </div>
   );
 }
