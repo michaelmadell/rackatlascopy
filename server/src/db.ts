@@ -179,7 +179,13 @@ function migrate(db: Database.Database): void {
     // the coarser "Device Types" category registry, not a port layout).
     // A frozen snapshot: elements_json is copied from the template at
     // placement/link time and never re-synced automatically.
-    custom_rack_device_id: 'TEXT'
+    custom_rack_device_id: 'TEXT',
+    // Device inventory fields shown in the real editor's own side panel
+    // (confirmed against a screen recording) — asset tracking, not
+    // anything the port/connection model reads.
+    manufacturer: 'TEXT',
+    model_name: 'TEXT',
+    serial_number: 'TEXT'
   })
   addColumns(db, 'device_connections', {
     direction: 'TEXT',

@@ -29,6 +29,12 @@ const deviceColumns = [
   // customDeviceTypeId above, which points at the coarser "Device Types"
   // category registry and carries no port layout.
   { db: 'custom_rack_device_id', api: 'customRackDeviceId' },
+  // Inventory fields shown in the real editor's own device side panel
+  // (confirmed against a screen recording) — asset tracking, not
+  // anything the port/connection model reads.
+  { db: 'manufacturer', api: 'manufacturer' },
+  { db: 'model_name', api: 'modelName' },
+  { db: 'serial_number', api: 'serialNumber' },
   { db: 'unit', api: 'unit' },
   { db: 'height_u', api: 'heightU' },
   // ...index.tsx:1051 — same column, the name the app sends.
@@ -62,6 +68,9 @@ export function deviceRowToDoc(row: any): Record<string, unknown> {
     deviceType: row.type,
     customDeviceTypeId: row.custom_device_type_id,
     customRackDeviceId: row.custom_rack_device_id,
+    manufacturer: row.manufacturer,
+    modelName: row.model_name,
+    serialNumber: row.serial_number,
     unit: row.unit,
     heightU: row.height_u,
     rackUnitsCount: row.height_u,

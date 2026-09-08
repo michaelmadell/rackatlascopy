@@ -167,6 +167,21 @@ export interface FaceElement {
    *  Defaults to 1 when absent. */
   colSpan?: number;
   rowSpan?: number;
+  /** Per-port metadata a real recording showed in a settings panel when a
+   *  *placed device's* port is selected (Speed (Mbps), VLAN) — distinct
+   *  from the port-group settings (idPrefix/connectorType/...) the
+   *  Device Library's own editor exposes on a template's ports. Ports only. */
+  speed?: string;
+  vlan?: string;
+  /** Ids of every DeviceConnection touching this port — mirrors the real
+   *  app's own model exactly (see device-connection.ts's
+   *  addConnectionToElement/removeConnectionFromElement on the server,
+   *  and subDevicesAndConnectionsQuery in
+   *  t.$tenantId.locations.$locationId.devices.$deviceId.tsx, which scans
+   *  this array to discover a device's connections — there is no other
+   *  way the app finds them). Server-owned: never set this from the
+   *  client, it's written by the connection routes. */
+  deviceConnectionIds?: string[];
 }
 
 export interface Device {
@@ -194,6 +209,12 @@ export interface Device {
    *  from customRackDeviceId's template at placement/link time, never
    *  re-synced automatically (see rack-editor/Editor.tsx). */
   elements?: FaceElement[];
+  /** Inventory fields shown in the real editor's own device side panel
+   *  (confirmed against a screen recording) — asset tracking, not
+   *  anything the port/connection model reads. */
+  manufacturer?: string;
+  modelName?: string;
+  serialNumber?: string;
 }
 
 export interface Room {

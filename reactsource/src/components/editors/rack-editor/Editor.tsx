@@ -635,6 +635,17 @@ function DeviceProperties({
   const [unit, setUnit] = useState(device.unit ?? 1);
   const [side, setSide] = useState(device.side || 'front');
   const [customRackDeviceId, setCustomRackDeviceId] = useState(device.customRackDeviceId || '');
+  const [manufacturer, setManufacturer] = useState(device.manufacturer || '');
+  const [modelName, setModelName] = useState(device.modelName || '');
+  const [serialNumber, setSerialNumber] = useState(device.serialNumber || '');
+  // Per-port edits (Port name/Speed/VLAN from DevicePortsPanel) land here
+  // first, not straight onto `device` — null means "no local edits yet",
+  // distinct from an edited-but-empty array, so Save knows whether to
+  // touch `elements` at all. Relinking to a different catalog device (via
+  // customRackDeviceId below) replaces this outright with a fresh
+  // snapshot, discarding any pending per-port edits — the two can't both
+  // apply at once.
+  const [elementsDraft, setElementsDraft] = useState<FaceElement[] | null>(null);
 
   useEffect(() => {
     setName(device.name || '');
@@ -643,10 +654,18 @@ function DeviceProperties({
     setUnit(device.unit ?? 1);
     setSide(device.side || 'front');
     setCustomRackDeviceId(device.customRackDeviceId || '');
+    setManufacturer(device.manufacturer || '');
+    setModelName(device.modelName || '');
+    setSerialNumber(device.serialNumber || '');
+    setElementsDraft(null);
   }, [device._id]);
 
+  const handleUpdatePort = (elementId: string, patch: Partial<FaceElement>) => {
+    setElementsDraft((prev) => (prev || device.elements || []).map((e: FaceElement) => (e.id === elementId ? { ...e, ...patch } : e)));
+  };
+
   const handleSave = () => {
-    const patch: Record<string, any> = { name, type, heightU, unit, side };
+    const patch: Record<string, any> = { name, type, heightU, unit, side, manufacturer, modelName, serialNumber };
     // Only touch elements/customRackDeviceId when the picked template
     // actually changed — every other field save (renaming, moving a U)
     // must never silently reset a device's ports.
@@ -654,6 +673,8 @@ function DeviceProperties({
       patch.customRackDeviceId = customRackDeviceId || null;
       const template = customRackDevices.find((d) => d._id === customRackDeviceId);
       patch.elements = customRackDeviceId ? snapshotElements(template?.ports) : [];
+    } else if (elementsDraft !== null) {
+      patch.elements = elementsDraft;
     }
     onUpdate?.(device._id, patch);
   };
@@ -695,6 +716,18 @@ function DeviceProperties({
         </Select>
       </div>
       <div>
+        <Label>Manufacturer</Label>
+        <Input value={manufacturer} onChange={(e: any) => setManufacturer(e.target.value)} disabled={readOnly} />
+      </div>
+      <div>
+        <Label>Model name</Label>
+        <Input value={modelName} onChange={(e: any) => setModelName(e.target.value)} disabled={readOnly} />
+      </div>
+      <div>
+        <Label>Serial number</Label>
+        <Input value={serialNumber} onChange={(e: any) => setSerialNumber(e.target.value)} disabled={readOnly} />
+      </div>
+      <div>
         <Label>Catalog device</Label>
         <Select
           value={customRackDeviceId || 'none'}
@@ -724,9 +757,10 @@ function DeviceProperties({
       </div>
 
       <DevicePortsPanel
-        device={device}
+        device={elementsDraft !== null ? { ...device, elements: elementsDraft } : device}
         deviceConnections={deviceConnections}
-        onPortClick={(el) => onPortClick(device, el)}
+        onUpdatePort={handleUpdatePort}
+        onConnectClick={(el) => onPortClick(device, el)}
         readOnly={readOnly}
       />
 
