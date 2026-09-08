@@ -13,7 +13,7 @@ import { getDeviceVisual } from './device-icon';
  */
 export default function DevicePalette() {
   return (
-    <div className="w-56 border-r border-[#27272a] p-3 overflow-y-auto space-y-1 shrink-0">
+    <div className="min-h-0 w-56 shrink-0 overflow-y-auto border-r border-[#27272a] p-3 space-y-1">
       <p className="text-xs text-[#a1a1aa] mb-2">Drag a device onto the rack</p>
       {STANDARD_DEVICE_TYPES.rack.map((category) => (
         <CategoryItem key={category.id} id={category.id} label={category.label()} />

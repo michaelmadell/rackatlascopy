@@ -1,19 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Input, Label, Button } from '@/patchdocs-ui';
-import DeviceFaceGrid from '../rack-device-editor/DeviceFaceGrid';
 import { computePortNumber } from '../rack-device-editor/layout-utils';
-import { SUB_ROWS_PER_U, getPortTypeDef } from '../rack-device-editor/port-types';
+import { getPortTypeDef } from '../rack-device-editor/port-types';
 import { TbChevronDown, TbChevronUp, TbPlugConnected } from 'react-icons/tb';
 import type { FaceElement, Side, DeviceConnection } from '@/types';
 
-/** Read-only render of a placed device's own port face (reuses
- *  rack-device-editor's DeviceFaceGrid — readOnly hides its resize handles,
- *  but a port's click-to-select still fires). Clicking a port *selects*
- *  it — a real recording showed this opens a settings panel (Port name /
- *  Speed (Mbps) / VLAN), not the Connect Port dialog directly; that only
- *  opens from an explicit "Connect" button inside that panel. Ports
- *  already carrying a cable are marked so it's clear at a glance which
- *  jacks are already in use. */
+/** A placed device's ports, as a list only — the visual face grid this
+ *  used to render up top is gone (a screenshot sequence's own Device
+ *  Settings panel never shows one; the visual layout only ever appears on
+ *  the rack elevation itself and in the Device Library's own editor).
+ *  Selecting a port here (via WiredPortsList) opens the same settings
+ *  card (Port name / Speed (Mbps) / VLAN / Connect) a real recording
+ *  showed. Ports already carrying a cable are marked so it's clear at a
+ *  glance which jacks are already in use. */
 export default function DevicePortsPanel({
   device,
   deviceConnections,
@@ -27,7 +26,6 @@ export default function DevicePortsPanel({
   onConnectClick: (element: FaceElement) => void;
   readOnly?: boolean;
 }) {
-  const [panelSide, setPanelSide] = useState<Side>('front');
   const [selectedPortId, setSelectedPortId] = useState<string | null>(null);
   const [wiredPortsOpen, setWiredPortsOpen] = useState(true);
 
@@ -41,7 +39,6 @@ export default function DevicePortsPanel({
 
   if (elements.length === 0) return null;
 
-  const subRows = (device.heightU || 1) * SUB_ROWS_PER_U;
   const selectedPort = elements.find((e) => e.id === selectedPortId) || null;
 
   // Looked up by port *name* — the only thing a real DeviceConnection
@@ -52,42 +49,8 @@ export default function DevicePortsPanel({
       .map((c) => (c.device1Id === device._id ? c.port1Name : c.port2Name))
   );
 
-  const noop = () => {};
-
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <h4 className="text-[11px] font-semibold text-[#f4f4f5]">Ports</h4>
-        <div className="flex items-center gap-1 rounded-md border border-[#27272a] bg-[#18181b] p-0.5">
-          {(['front', 'back'] as const).map((s) => (
-            <button
-              key={s}
-              type="button"
-              onClick={() => setPanelSide(s)}
-              className={`rounded px-2 py-0.5 text-[10px] font-medium capitalize ${
-                panelSide === s ? 'bg-[#27272a] text-[#f4f4f5]' : 'text-[#a1a1aa]'
-              }`}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="overflow-x-auto rounded-sm border border-[#3f3f46]">
-        <DeviceFaceGrid
-          side={panelSide}
-          subRows={subRows}
-          elements={elements}
-          selectedId={selectedPortId}
-          onSelect={(id) => !readOnly && setSelectedPortId(id)}
-          onResizeGroup={noop}
-          onResizeGroupVertical={noop}
-          onResizeElementSpan={noop}
-          readOnly
-        />
-      </div>
-
       {selectedPort && (
         <div className="space-y-2 rounded-sm border border-[#27272a] bg-[#18181b] p-2.5">
           <p className="text-[10px] font-semibold text-[#f4f4f5]">
@@ -145,10 +108,7 @@ export default function DevicePortsPanel({
         connectedPortNames={connectedPortNames}
         open={wiredPortsOpen}
         onToggleOpen={() => setWiredPortsOpen((o) => !o)}
-        onSelect={(el) => {
-          setSelectedPortId(el.id);
-          setPanelSide(el.side);
-        }}
+        onSelect={(el) => setSelectedPortId(el.id)}
         onConnectClick={onConnectClick}
         readOnly={readOnly}
       />
@@ -156,17 +116,17 @@ export default function DevicePortsPanel({
   );
 }
 
-/** A screenshot sequence (105428/105449) showed a distinct "Wired ports"
- *  list below a placed device's face grid — every real port grouped under
- *  Front/Back headers, named (MGMT01, PTHR01-12, LAG01-04, ...) with its
- *  connector type, plus a small per-row icon. The icon's exact action
- *  wasn't legible in those frames; a direct Connect shortcut is the
- *  reading that fits the rest of this panel (select-then-Connect already
- *  exists below the grid — a row's own icon std doing the same in one
- *  click is a natural shortcut, not a new mechanic). Clicking the row
- *  itself selects that port, same as clicking its tick on the grid above —
- *  flips the Front/Back grid toggle too so the highlighted tick is never
- *  on a hidden side. */
+/** A screenshot sequence (105428/105449) showed a "Wired ports" list on a
+ *  placed device's own Ports panel — no visual face grid alongside it (that
+ *  only ever appears on the rack elevation itself and in the Device
+ *  Library's own editor) — every real port grouped under Front/Back
+ *  headers, named (MGMT01, PTHR01-12, LAG01-04, ...) with its connector
+ *  type, plus a small per-row icon. The icon's exact action wasn't legible
+ *  in those frames; a direct Connect shortcut is the reading that fits the
+ *  rest of this panel (select-then-Connect already exists in the settings
+ *  card above — a row's own icon doing the same in one click is a natural
+ *  shortcut, not a new mechanic). Clicking the row itself selects that
+ *  port, opening that same settings card. */
 function WiredPortsList({
   elements,
   selectedPortId,

@@ -1,6 +1,5 @@
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useDraggable } from '@dnd-kit/core';
-import { getDeviceVisual } from './device-icon';
 import { getPortTypeDef } from '../rack-device-editor/port-types';
 import { portFraction, computePortNumber } from '../rack-device-editor/layout-utils';
 import type { FaceElement, Side } from '@/types';
@@ -61,7 +60,6 @@ export default function DeviceBlock({
     );
   }
 
-  const { Icon, color } = getDeviceVisual(device.type);
   const ports: FaceElement[] = (device.elements || []).filter((e: FaceElement) => e.kind === 'port' && e.side === viewSide);
   const subRows = (device.heightU || 1) * 2; // SUB_ROWS_PER_U, kept a literal to dodge an extra import for one constant
 
@@ -72,18 +70,18 @@ export default function DeviceBlock({
       onClick={onSelect}
       {...listeners}
       {...attributes}
-      style={{ top, height, borderLeftColor: color }}
-      className={`pointer-events-auto absolute left-5 right-5 flex items-center gap-1.5 overflow-hidden rounded-sm border border-l-[3px] bg-gradient-to-b from-[#202024] to-[#18181b] px-2 text-left shadow-sm transition-shadow duration-150 ${
-        selected
-          ? 'border-blue-400 bg-blue-500/10 text-[#f4f4f5] shadow-[0_0_0_1px_rgba(96,165,250,0.5)]'
-          : 'border-[#3f3f46] text-[#d4d4d8] hover:border-[#52525b] hover:shadow-md'
+      style={{ top, height }}
+      className={`pointer-events-auto absolute left-5 right-5 overflow-hidden rounded-sm border bg-[#111113] text-left transition-colors duration-150 ${
+        selected ? 'border-blue-400 bg-blue-500/10' : 'border-[#3f3f46] hover:border-[#52525b]'
       } ${readOnly ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'}`}
     >
-      {/* Port ticks, painted first so the name/icon/U-badge below sit on
-       * top of them where they'd otherwise overlap — real markup gives
-       * ports the device's *entire* face with no name text competing for
-       * room; ours keeps the label, so this is a compromise, not a copy. */}
-      {ports.length > 0 && (
+      {/* Ports (or, lacking any, the device's own type as plain text) span
+       * the button's *full* box — RackGrid's own cable-anchor math
+       * (DEVICE_LEFT/DEVICE_RIGHT) assumes portFraction's 0..1 maps across
+       * this exact box, so nothing here may narrow that coordinate space
+       * (the name label below is a purely visual overlay, not a sibling
+       * that would shift it). */}
+      {ports.length > 0 ? (
         <div className="pointer-events-none absolute inset-0">
           {ports.map((p) => {
             const def = getPortTypeDef(p.portType || '');
@@ -119,16 +117,27 @@ export default function DeviceBlock({
             );
           })}
         </div>
+      ) : (
+        device.type && <span className="absolute left-6 top-1/2 -translate-y-1/2 text-[10px] text-[#71717a]">{device.type}</span>
       )}
 
-      <Icon className="size-3.5 shrink-0" style={{ color }} />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[11px] leading-tight">{device.name}</span>
-        {height >= 40 && device.type && (
-          <span className="block truncate text-[9px] leading-tight text-[#71717a]">{device.type}</span>
-        )}
-      </span>
-      <span className="shrink-0 rounded bg-[#0c0c0e]/60 px-1 text-[9px] text-[#71717a]">{device.heightU || 1}U</span>
+      {/* Real rack elevations give a device only its name, set vertically
+       * along the block's own left edge (same writing-mode convention
+       * DeviceFaceGrid/PortToolbar already use for their own side labels)
+       * — no icon, no accent color, no unit badge (confirmed against a
+       * screenshot sequence; this session's earlier icon/badge/type-label
+       * treatment didn't match). Painted after the ports layer, with an
+       * opaque background, so it sits on top of any port tick that would
+       * otherwise land underneath it — same tradeoff the icon/name/badge
+       * row this replaced already made. */}
+      <div className="pointer-events-none absolute inset-y-0 left-0 flex w-4 items-center justify-center border-r border-[rgba(255,255,255,0.08)] bg-[#111113]">
+        <span
+          className="whitespace-nowrap text-[9px] font-bold uppercase tracking-widest text-[#d4d4d8]"
+          style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
+        >
+          {device.name}
+        </span>
+      </div>
     </button>
   );
 }

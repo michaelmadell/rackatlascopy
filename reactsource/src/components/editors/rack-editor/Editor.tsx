@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   DndContext,
@@ -198,6 +198,31 @@ export default function RackEditor({
     queryClient.invalidateQueries({ queryKey: ['sub-devices-and-connections'] });
   };
 
+  // A device with no customRackDeviceId used to be linked by hand (a
+  // "Catalog device" picker in DeviceProperties). That picker's gone —
+  // every device that has a real catalog match now gets linked
+  // automatically instead, same match rule AddDeviceDialog already uses
+  // (device.type against a catalog entry's deviceType/type). A builtin
+  // catalog entry never has a real _id to link to, so a device placed
+  // from one stays unlinked until a matching CustomRackDevice exists in
+  // the Device Library. `autoLinkAttempted` stops a device from being
+  // retried every render — once tried, it's tried, whether or not a
+  // match existed at that moment (a template added later doesn't
+  // retroactively sweep up devices this effect already looked at).
+  const autoLinkAttempted = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (readOnly || !onDeviceUpdate) return;
+    for (const d of subDevices) {
+      if (d.customRackDeviceId || autoLinkAttempted.current.has(d._id)) continue;
+      autoLinkAttempted.current.add(d._id);
+      const match = customRackDevices.find((cd) => (cd.deviceType || cd.type) === d.type);
+      if (!match) continue;
+      onDeviceUpdate(d._id, { customRackDeviceId: match._id, elements: snapshotElements(match.ports) }).then(
+        invalidateSubDevices
+      );
+    }
+  }, [subDevices, customRackDevices, readOnly, onDeviceUpdate]);
+
   const handleDeleteDevice = async (id: string) => {
     if (!tenantId) return;
     await api.delete(`/tenant/${tenantId}/device/${id}`);
@@ -390,10 +415,10 @@ export default function RackEditor({
       onDragEnd={handleDragEnd}
       onDragCancel={handleDragCancel}
     >
-      <div className="flex-1 flex bg-[#0c0c0e] text-[#f4f4f5] overflow-hidden">
+      <div className="h-full flex bg-[#0c0c0e] text-[#f4f4f5] overflow-hidden">
         {!readOnly && <DevicePalette />}
 
-        <div className="flex-1 overflow-y-auto p-6 flex flex-col items-center gap-3">
+        <div className="min-h-0 flex-1 overflow-y-auto p-6 flex flex-col items-center gap-3">
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1 bg-[#18181b] border border-[#27272a] rounded-lg p-1">
               {(['front', 'back'] as const).map((s) => (
@@ -617,7 +642,7 @@ function RackProperties({
   }, [rack?._id]);
 
   return (
-    <aside className="w-72 border-l border-[#27272a] p-4 text-xs space-y-3 shrink-0 overflow-y-auto">
+    <aside className="min-h-0 w-72 shrink-0 overflow-y-auto border-l border-[#27272a] p-4 text-xs space-y-3">
       <h3 className="font-semibold">Rack</h3>
       <div>
         <Label>ID</Label>
@@ -727,7 +752,6 @@ function DeviceProperties({
   const [heightU, setHeightU] = useState(device.heightU ?? 1);
   const [unit, setUnit] = useState(device.unit ?? 1);
   const [side, setSide] = useState(device.side || 'front');
-  const [customRackDeviceId, setCustomRackDeviceId] = useState(device.customRackDeviceId || '');
   const [responsibleUserId, setResponsibleUserId] = useState(device.responsibleUserId || '');
   const [manufacturer, setManufacturer] = useState(device.manufacturer || '');
   const [modelName, setModelName] = useState(device.modelName || '');
@@ -739,10 +763,9 @@ function DeviceProperties({
   // Per-port edits (Port name/Speed/VLAN from DevicePortsPanel) land here
   // first, not straight onto `device` — null means "no local edits yet",
   // distinct from an edited-but-empty array, so Save knows whether to
-  // touch `elements` at all. Relinking to a different catalog device (via
-  // customRackDeviceId below) replaces this outright with a fresh
-  // snapshot, discarding any pending per-port edits — the two can't both
-  // apply at once.
+  // touch `elements` at all. Catalog linking is automatic now (see
+  // RackEditor's own auto-link effect) — this component never touches
+  // customRackDeviceId/elements wholesale itself any more, only per-port.
   const [elementsDraft, setElementsDraft] = useState<FaceElement[] | null>(null);
 
   useEffect(() => {
@@ -752,7 +775,6 @@ function DeviceProperties({
     setHeightU(device.heightU ?? 1);
     setUnit(device.unit ?? 1);
     setSide(device.side || 'front');
-    setCustomRackDeviceId(device.customRackDeviceId || '');
     setResponsibleUserId(device.responsibleUserId || '');
     setManufacturer(device.manufacturer || '');
     setModelName(device.modelName || '');
@@ -783,21 +805,12 @@ function DeviceProperties({
       operationStart,
       photos
     };
-    // Only touch elements/customRackDeviceId when the picked template
-    // actually changed — every other field save (renaming, moving a U)
-    // must never silently reset a device's ports.
-    if (customRackDeviceId !== (device.customRackDeviceId || '')) {
-      patch.customRackDeviceId = customRackDeviceId || null;
-      const template = customRackDevices.find((d) => d._id === customRackDeviceId);
-      patch.elements = customRackDeviceId ? snapshotElements(template?.ports) : [];
-    } else if (elementsDraft !== null) {
-      patch.elements = elementsDraft;
-    }
+    if (elementsDraft !== null) patch.elements = elementsDraft;
     onUpdate?.(device._id, patch);
   };
 
   return (
-    <aside className="w-72 border-l border-[#27272a] p-4 text-xs space-y-3 shrink-0 overflow-y-auto">
+    <aside className="min-h-0 w-72 shrink-0 overflow-y-auto border-l border-[#27272a] p-4 text-xs space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="font-semibold">Device</h3>
         <button type="button" onClick={onClose} className="text-[#a1a1aa] hover:text-[#f4f4f5]">
@@ -865,31 +878,16 @@ function DeviceProperties({
 
       <div>
         <Label>Catalog device</Label>
-        <Select
-          value={customRackDeviceId || 'none'}
-          onValueChange={(v: string) => setCustomRackDeviceId(v === 'none' ? '' : v)}
-          disabled={readOnly}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder="None">
-              {customRackDeviceId ? customRackDevices.find((d) => d._id === customRackDeviceId)?.name || 'Unknown device' : 'None'}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="none">None</SelectItem>
-            {customRackDevices.map((d) => (
-              <SelectItem key={d._id} value={d._id}>
-                {d.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {/* Picking a different device here replaces this device's ports
-         * with that catalog device's layout on Save — a fresh snapshot,
-         * not a live link, so a later edit to the catalog entry won't
-         * reach back and change ports out from under any cables already
-         * landed on this device. */}
-        <p className="mt-1 text-[10px] text-[#52525b]">Linking replaces this device's ports with the catalog device's layout.</p>
+        {/* No manual picker any more — RackEditor's own auto-link effect
+         * links (or re-links) this device by matching `type` against the
+         * Device Library as soon as a match exists, so there's nothing
+         * left for a person to pick. This is read-only status, not a
+         * control. */}
+        <p className="text-[11px] text-[#d4d4d8]">
+          {device.customRackDeviceId
+            ? customRackDevices.find((d) => d._id === device.customRackDeviceId)?.name || 'Unknown device'
+            : 'Not in Device Library'}
+        </p>
       </div>
 
       <DevicePortsPanel
@@ -941,7 +939,7 @@ function ConnectionsListPanel({
   const nameFor = (id: string) => subDevices.find((d) => d._id === id)?.name || 'Unknown device';
 
   return (
-    <aside className="w-72 border-l border-[#27272a] p-4 text-xs space-y-3 shrink-0 overflow-y-auto">
+    <aside className="min-h-0 w-72 shrink-0 overflow-y-auto border-l border-[#27272a] p-4 text-xs space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="font-semibold">Connections</h3>
         <button type="button" onClick={onClose} className="text-[#a1a1aa] hover:text-[#f4f4f5]">
