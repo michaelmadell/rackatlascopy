@@ -166,6 +166,11 @@ export default function RackEditor({
   // port opens a "Connect Port: <Device>/<Port>" dialog with a searchable
   // device list, not a click-elsewhere-on-canvas interaction.
   const [connectingFrom, setConnectingFrom] = useState<{ device: any; element: FaceElement } | null>(null);
+  // Which port has the little orange pin floating above it on the rack
+  // elevation — a real recording corrected this session's own earlier
+  // drag-to-connect guess: clicking a port just selects it and drops this
+  // pin, and it's the *pin* that opens the Connect Port dialog below.
+  const [selectedPort, setSelectedPort] = useState<{ deviceId: string; elementId: string } | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
   // Real recording shows ctrl+scroll zooming the rack elevation, plus a
   // small +/-/reset control stack on the canvas's own left edge.
@@ -215,6 +220,10 @@ export default function RackEditor({
   const selectDevice = (id: string | null) => {
     setSelectedDeviceId(id);
     onSelectedDeviceChange?.(id);
+    // Any device-selection change NOT driven by a port click (see
+    // onPortClick below) drops whatever pin is showing — a real recording
+    // only ever shows one pin at a time, tied to the port last clicked.
+    setSelectedPort(null);
   };
 
   const invalidateSubDevices = () => {
@@ -253,14 +262,12 @@ export default function RackEditor({
     invalidateSubDevices();
   };
 
-  // A port click opens the Connect Port dialog for it — the actual
-  // connection is only created once a target port is picked inside that
-  // dialog, in handleConnectConfirm below. Kept alongside the rack
-  // elevation's own direct port-to-port drag (handleCableDrop) as a second
-  // entry point into the same createConnection call — a real recording
-  // shows the drag as the primary mechanic, but the side-panel's searchable
-  // device list is still the easier path when the target device is off
-  // whatever's currently on-screen.
+  // Opens the Connect Port dialog for a port — the actual connection is
+  // only created once a target port is picked inside that dialog, in
+  // handleConnectConfirm below. Two entry points share this: the sidebar's
+  // DevicePortsPanel (a port row click opens it directly) and, on the rack
+  // elevation itself, clicking the *pin* above an already-selected port
+  // (RackGrid's own onPinClick — see the <RackGrid> call site below).
   const handlePortClick = (device: any, element: FaceElement) => {
     setConnectingFrom({ device, element });
   };
@@ -296,9 +303,11 @@ export default function RackEditor({
   };
 
   // Dropping a dragged port directly onto another port on the rack
-  // elevation — the real app's own primary connect gesture (a screenshot
-  // sequence showed an orange source marker, a dashed preview line
-  // following the cursor, and an instant "Saved" on drop — no dialog).
+  // elevation — the real app's own direct connect gesture, alongside (not
+  // instead of) the plain-click-selects-a-pin flow above: a real
+  // recording shows both starting from the same press-on-a-port, and
+  // RackGrid's own startPortDrag is what tells them apart by whether the
+  // pointer moved before release.
   const handleCableDrop = (sourceDevice: any, sourceElement: FaceElement, targetDevice: any, targetElement: FaceElement) =>
     createConnection(sourceDevice, sourceElement, targetDevice, targetElement);
 
@@ -469,6 +478,16 @@ export default function RackEditor({
               deviceConnections={deviceConnections}
               onDeleteConnection={readOnly ? undefined : handleDeleteConnection}
               onCableDrop={readOnly ? undefined : handleCableDrop}
+              selectedPort={selectedPort}
+              onPortClick={
+                readOnly
+                  ? undefined
+                  : (device, element) => {
+                      selectDevice(device._id);
+                      setSelectedPort({ deviceId: device._id, elementId: element.id });
+                    }
+              }
+              onPinClick={readOnly ? undefined : handlePortClick}
               zoom={zoom}
             />
           )}

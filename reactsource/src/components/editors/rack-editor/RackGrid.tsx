@@ -1,5 +1,7 @@
 import { useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useDroppable } from '@dnd-kit/core';
+import { TbPlugConnected } from 'react-icons/tb';
 import { RackTop } from '@/components/RackTop';
 import { RackMiddle } from '@/components/RackMiddle';
 import { RackBottom } from '@/components/RackBottom';
@@ -175,6 +177,9 @@ export default function RackGrid({
   deviceConnections = [],
   onDeleteConnection,
   onCableDrop,
+  selectedPort,
+  onPortClick,
+  onPinClick,
   zoom
 }: {
   heightU: number;
@@ -195,25 +200,41 @@ export default function RackGrid({
    *  here (see the Connections list panel for the full set). */
   deviceConnections?: DeviceConnection[];
   onDeleteConnection?: (connectionId: string) => void;
-  /** Fires once a cable drag (see onPortPointerDown below) is dropped on a
-   *  *different* device's port — a real recording's own connect flow: drag
-   *  from a source port straight to a target port on the rack elevation,
-   *  no dialog. Undefined (readOnly) disables the drag entirely. */
+  /** Fires when a cable drag (started on a port, see startPortDrag below)
+   *  is dropped on a *different* device's port — a real recording's own
+   *  direct connect flow: drag from a source port straight to a target
+   *  port on the rack elevation, no dialog. This is the OTHER outcome of
+   *  the same pointer-down-on-a-port gesture that also drives
+   *  `onPortClick` below — released without moving = click (select +
+   *  pin); released after moving onto another port = this. Undefined
+   *  (readOnly) disables both. */
   onCableDrop?: (sourceDevice: any, sourceElement: FaceElement, targetDevice: any, targetElement: FaceElement) => void;
+  /** Which port currently has the little orange pin floating above it —
+   *  the *other* outcome of a port pointer-down (see `onCableDrop`
+   *  above): released in place (no drag) just selects the port and drops
+   *  a pin above it; the pin itself is what opens the Connect Port
+   *  dialog when clicked. `deviceId`/`elementId` rather than the objects
+   *  themselves so Editor.tsx (which owns this as lifted state) doesn't
+   *  need to keep a stale device/element pair in sync. */
+  selectedPort?: { deviceId: string; elementId: string } | null;
+  /** Fires when a port tick is pressed and released *without* dragging —
+   *  selects it (the caller decides what "selected" means: Editor.tsx
+   *  also selects the owning device so the sidebar switches to it). */
+  onPortClick?: (device: any, element: FaceElement) => void;
+  /** Fires when the floating pin above the selected port is clicked —
+   *  opens the Connect Port dialog for that exact port. */
+  onPinClick?: (device: any, element: FaceElement) => void;
   /** CSS scale the whole elevation renders at (Editor.tsx's own zoom
    *  controls / ctrl+scroll) — everything on this component's own side
-   *  (port ticks, cable paths, the drag preview) is computed in *pre-zoom*
-   *  local units, so pointer math converting a real screen position (e.g.
-   *  a port drag) back into those units has to divide out the same scale
-   *  the container is visually rendered at, or the drag preview reads the
-   *  cursor at the wrong spot whenever zoom isn't 1. */
+   *  (port ticks, cable paths, the selection pin) is computed in
+   *  *pre-zoom* local units; the pin's own click target is a real DOM
+   *  element sized in those same units, so it scales correctly for free
+   *  as a child of the already-scaled container — no pointer-math
+   *  conversion needed the way a live drag would have required. */
   zoom?: number;
 }) {
   const zoomFactor = zoom || 1;
   const containerRef = useRef<HTMLDivElement>(null);
-  // Live cable-drag state: the source port plus the pointer's current
-  // rack-local position, so a dashed preview can track the cursor from
-  // source port to whatever's under it. Cleared on drop or cancel.
   const [dragCable, setDragCable] = useState<{ device: any; element: FaceElement; x: number; y: number } | null>(null);
 
   const units = Array.from({ length: heightU }, (_, i) => heightU - i);
@@ -290,50 +311,79 @@ export default function RackGrid({
     connectedNamesByDevice.get(c.device2Id)!.add(c.port2Name);
   }
 
-  /** Native pointer-event drag, same family as the resize handles use
-   *  elsewhere in this editor — dnd-kit's own drag machinery is already
-   *  claimed by device repositioning, so a cable drag can't reuse it
-   *  without the two fighting over the same pointerdown. Tracks the
-   *  pointer with window-level listeners (the source port element itself
-   *  isn't under the cursor for most of the drag) and resolves the drop
-   *  target via `elementFromPoint` + the `data-port-hit` marker every port
-   *  tick carries. */
-  function startPortDrag(device: any, element: FaceElement, evt: { clientX: number; clientY: number }) {
-    if (onCableDrop === undefined) return;
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    // getBoundingClientRect already reflects the CSS scale zoom applies —
-    // dividing by zoomFactor converts back to this component's own
-    // pre-zoom local units, the same space every port tick and cable path
-    // is positioned in.
-    setDragCable({ device, element, x: (evt.clientX - rect.left) / zoomFactor, y: (evt.clientY - rect.top) / zoomFactor });
+  // The selected port's own pin anchor — null unless `selectedPort` names a
+  // port that's actually on-screen right now (this rack, this Front/Back
+  // side). Plain (x,y): the pin is a real DOM element positioned with
+  // this component's own local units, not an SVG path needing lane/rail
+  // math the way a cable does.
+  let pinAnchor: { device: any; element: FaceElement; x: number; y: number } | null = null;
+  if (selectedPort) {
+    const device = devicesById.get(selectedPort.deviceId);
+    const element = device?.elements?.find((el: FaceElement) => el.id === selectedPort.elementId);
+    const rect = device && blockRects.get(device._id);
+    if (device && element && rect) {
+      const frac = portFraction(element, (device.heightU || 1) * 2);
+      pinAnchor = {
+        device,
+        element,
+        x: DEVICE_LEFT + frac.x * (DEVICE_RIGHT - DEVICE_LEFT),
+        y: rect.top + frac.y * rect.height
+      };
+    }
+  }
+
+  // The port pointer-down anchor for cable dragging vs. plain port
+  // selection: a real recording shows both gestures start the same way
+  // (press a port) and only diverge on release — moved past a small dead
+  // zone before release = drag a cable onto another port (onCableDrop);
+  // released in place = select this port and drop the pin (onPortClick).
+  function startPortDrag(device: any, element: FaceElement, evt: ReactPointerEvent<HTMLDivElement>) {
+    const startX = evt.clientX;
+    const startY = evt.clientY;
+    const DRAG_THRESHOLD = 4; // px
+    let dragging = false;
+
+    const toLocal = (clientX: number, clientY: number) => {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return { x: 0, y: 0 };
+      return { x: (clientX - rect.left) / zoomFactor, y: (clientY - rect.top) / zoomFactor };
+    };
 
     const onMove = (e: PointerEvent) => {
-      const r = containerRef.current?.getBoundingClientRect();
-      if (!r) return;
-      setDragCable((prev) => (prev ? { ...prev, x: (e.clientX - r.left) / zoomFactor, y: (e.clientY - r.top) / zoomFactor } : prev));
+      if (!dragging) {
+        if (Math.hypot(e.clientX - startX, e.clientY - startY) < DRAG_THRESHOLD) return;
+        dragging = true;
+      }
+      const { x, y } = toLocal(e.clientX, e.clientY);
+      setDragCable({ device, element, x, y });
     };
+
     const onUp = (e: PointerEvent) => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       setDragCable(null);
-      const hit = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest(
-        '[data-port-hit]'
-      ) as HTMLElement | null;
-      if (!hit) return;
-      const targetDevice = devices.find((d) => d._id === hit.dataset.deviceId);
-      const targetElement = targetDevice?.elements?.find((el: FaceElement) => el.id === hit.dataset.elementId);
+      if (!dragging) {
+        onPortClick?.(device, element);
+        return;
+      }
+      const target = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-port-hit]') as HTMLElement | null;
+      if (!target) return;
+      const targetDevice = devicesById.get(target.dataset.deviceId || '');
+      const targetElement = targetDevice?.elements?.find((el: FaceElement) => el.id === target.dataset.elementId);
       if (!targetDevice || !targetElement) return;
-      // A cable always runs between two different devices in every example
-      // seen — self-loops are rejected rather than guessed at.
-      if (targetDevice._id === device._id) return;
+      if (targetDevice._id === device._id && targetElement.id === element.id) return; // dropped back on itself
       onCableDrop?.(device, element, targetDevice, targetElement);
     };
+
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
   }
 
-  // Live preview anchors — null until a drag is in flight.
+  // Live dashed preview of an in-progress cable drag — null unless
+  // `dragCable` names a port actually being dragged from right now, same
+  // ax/ay/railAy anchor math anchorsFor() uses for a settled connection,
+  // just with `bx`/`by` following the pointer instead of a resolved
+  // target port.
   let dragPreview: { ax: number; ay: number; bx: number; by: number; laneX: number; railAy: number } | null = null;
   if (dragCable) {
     const rect = blockRects.get(dragCable.device._id);
@@ -341,9 +391,12 @@ export default function RackGrid({
       const frac = portFraction(dragCable.element, (dragCable.device.heightU || 1) * 2);
       const ax = DEVICE_LEFT + frac.x * (DEVICE_RIGHT - DEVICE_LEFT);
       const ay = rect.top + frac.y * rect.height;
-      const side: 'left' | 'right' = dragCable.x >= ax ? 'right' : 'left';
-      const laneX = side === 'right' ? EAR_RIGHT + LANE_FIRST_OFFSET : EAR_LEFT - LANE_FIRST_OFFSET;
-      dragPreview = { ax, ay, bx: dragCable.x, by: dragCable.y, laneX, railAy: railY(rect, frac) };
+      const railAy = railY(rect, frac);
+      const laneX =
+        dragCable.x >= ax
+          ? Math.min(EAR_RIGHT + LANE_FIRST_OFFSET, OUTLINE_RIGHT)
+          : Math.max(EAR_LEFT - LANE_FIRST_OFFSET, OUTLINE_LEFT);
+      dragPreview = { ax, ay, bx: dragCable.x, by: dragCable.y, laneX, railAy };
     }
   }
 
@@ -402,7 +455,7 @@ export default function RackGrid({
                   readOnly={readOnly}
                   viewSide={viewSide}
                   connectedPortNames={connectedNamesByDevice.get(device._id)}
-                  onPortPointerDown={onCableDrop ? startPortDrag : undefined}
+                  onPortPointerDown={onCableDrop || onPortClick ? startPortDrag : undefined}
                 />
               );
             })}
@@ -423,20 +476,13 @@ export default function RackGrid({
           {dragPreview && (
             <>
               <path
-                d={elbowPath(
-                  dragPreview.ax,
-                  dragPreview.ay,
-                  dragPreview.bx,
-                  dragPreview.by,
-                  dragPreview.laneX,
-                  dragPreview.railAy
-                )}
+                d={elbowPath(dragPreview.ax, dragPreview.ay, dragPreview.bx, dragPreview.by, dragPreview.laneX, dragPreview.railAy, dragPreview.by)}
                 fill="none"
-                stroke="#3b82f6"
+                stroke="#f97316"
                 strokeWidth={1.5}
                 strokeDasharray="4 3"
               />
-              <circle cx={dragPreview.ax} cy={dragPreview.ay} r={4} fill="#f97316" />
+              <circle cx={dragPreview.bx} cy={dragPreview.by} r={4} fill="#f97316" />
             </>
           )}
           {visibleConnections.map(({ conn, anchors }) => {
@@ -468,6 +514,27 @@ export default function RackGrid({
             );
           })}
         </svg>
+      )}
+
+      {/* The pin — a real recording corrected this session's own earlier
+       * assumption that connecting was a drag: clicking a port just
+       * selects it and drops this pin above it; clicking the *pin* is
+       * what opens the Connect Port dialog (Editor.tsx's onPinClick,
+       * same dialog either an existing "Connect" button or the Wired
+       * ports list's own shortcut icon already opened). A real DOM
+       * button, not part of the pointer-events-none cable svg, so it's
+       * actually clickable; its own local-unit position scales for free
+       * as a child of the already-`transform: scale`d container above. */}
+      {pinAnchor && onPinClick && (
+        <button
+          type="button"
+          onClick={() => onPinClick(pinAnchor!.device, pinAnchor!.element)}
+          className="absolute flex size-5 -translate-x-1/2 -translate-y-[125%] items-center justify-center rounded-full bg-orange-500 text-white shadow-md hover:bg-orange-400"
+          style={{ left: pinAnchor.x, top: pinAnchor.y }}
+          title="Connect this port"
+        >
+          <TbPlugConnected className="size-3" />
+        </button>
       )}
       </div>
     </div>

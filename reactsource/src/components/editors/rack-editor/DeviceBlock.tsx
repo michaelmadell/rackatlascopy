@@ -62,11 +62,14 @@ export default function DeviceBlock({
    *  with a filled plug glyph instead of the bare port-type outline, same
    *  as a real recording's connected-port state. */
   connectedPortNames?: Set<string>;
-  /** Starts a cable drag from this exact port — a real recording shows the
-   *  connection flow is a direct port-to-port drag on the rack elevation
-   *  itself (dashed preview line, drop on the target port), not only the
-   *  side-panel dialog. Only wired up when the rack isn't read-only. */
-  onPortPointerDown?: (device: any, element: FaceElement, evt: ReactPointerEvent) => void;
+  /** Starts the port pointer-down gesture — a real recording shows this
+   *  one press-on-a-port can resolve two different ways depending on
+   *  what happens next (RackGrid's own startPortDrag decides which):
+   *  dragged onto another port draws a cable straight there (no dialog);
+   *  released in place just selects the port and drops a pin above it,
+   *  and it's the pin that opens the Connect Port dialog. Only wired up
+   *  when the rack isn't read-only. */
+  onPortPointerDown?: (device: any, element: FaceElement, evt: ReactPointerEvent<HTMLDivElement>) => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `device-${device._id}`,
@@ -127,9 +130,10 @@ export default function DeviceBlock({
                     readOnly
                       ? undefined
                       : (e) => {
-                          // A port drag starts a cable, not a device move — stop it
-                          // reaching the block's own dnd-kit listeners (spread onto
-                          // the <button> below via `{...listeners}`).
+                          // A port press starts a cable-or-select gesture, not a
+                          // device move — stop it reaching the block's own
+                          // dnd-kit listeners (spread onto the <button> below via
+                          // `{...listeners}`).
                           e.stopPropagation();
                           onPortPointerDown?.(device, p, e);
                         }
