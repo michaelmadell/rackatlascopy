@@ -83,6 +83,47 @@ describe('device-connection routes', () => {
       expect(db.prepare('SELECT COUNT(*) AS n FROM device_connections').get()).toEqual({ n: 0 })
     })
 
+    it('writes the connection id onto both ports\' deviceConnectionIds — this is the only way the app discovers a connection exists', async () => {
+      const mkDevice = async (name: string, portNumber: string) => {
+        const res = await app.inject({
+          method: 'POST',
+          url: `/tenant/${TENANT_ID}/device`,
+          headers: AUTH,
+          payload: { name, deviceType: 'switch', elements: [{ id: 'el-1', kind: 'port', side: 'front', col: 0, row: 0, number: portNumber }] }
+        })
+        return res.json().data._id as string
+      }
+      const d1 = await mkDevice('D1', '01')
+      const d2 = await mkDevice('D2', '02')
+
+      const res = await batch(TENANT_ID, {
+        create: [{ ...CREATE_ITEM, device1Id: d1, device2Id: d2, port1Name: '01', port2Name: '02' }],
+        delete: []
+      })
+      const connectionId = res.json().data.created[0]._id
+
+      const get = (id: string) => app.inject({ method: 'GET', url: `/tenant/${TENANT_ID}/device/${id}`, headers: AUTH })
+      const d1Elements = (await get(d1)).json().data.elements
+      const d2Elements = (await get(d2)).json().data.elements
+      expect(d1Elements[0].deviceConnectionIds).toEqual([connectionId])
+      expect(d2Elements[0].deviceConnectionIds).toEqual([connectionId])
+
+      // Deleting pulls the id back off both ports.
+      await batch(TENANT_ID, { create: [], delete: [connectionId] })
+      const d1After = (await get(d1)).json().data.elements
+      const d2After = (await get(d2)).json().data.elements
+      expect(d1After[0].deviceConnectionIds).toEqual([])
+      expect(d2After[0].deviceConnectionIds).toEqual([])
+    })
+
+    it('leaves elements alone when the connection points at a device or port that does not exist', async () => {
+      // insertConnection must not throw just because the endpoint device (or
+      // its matching port) isn't real — a plain device_connections row is
+      // still a valid outcome for callers that never look at elements.
+      const res = await batch(TENANT_ID, { create: [CREATE_ITEM], delete: [] })
+      expect(res.statusCode).toBe(200)
+    })
+
     it('applies create and delete in one call', async () => {
       const first = await batch(TENANT_ID, { create: [CREATE_ITEM], delete: [] })
       const oldId = first.json().data.created[0]._id
@@ -274,6 +315,32 @@ describe('device-connection routes', () => {
       headers: AUTH
     })
     expect(deleted.json()).toEqual({ success: true })
+  })
+
+  it('the standalone DELETE route also unlinks the connection from both ports\' elements', async () => {
+    const mkDevice = async (name: string, portNumber: string) => {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/tenant/${TENANT_ID}/device`,
+        headers: AUTH,
+        payload: { name, deviceType: 'switch', elements: [{ id: 'el-1', kind: 'port', side: 'front', col: 0, row: 0, number: portNumber }] }
+      })
+      return res.json().data._id as string
+    }
+    const d1 = await mkDevice('D1', '01')
+    const d2 = await mkDevice('D2', '02')
+
+    const created = await batch(TENANT_ID, {
+      create: [{ ...CREATE_ITEM, device1Id: d1, device2Id: d2, port1Name: '01', port2Name: '02' }],
+      delete: []
+    })
+    const connectionId = created.json().data.created[0]._id
+
+    await app.inject({ method: 'DELETE', url: `/tenant/${TENANT_ID}/device-connection/${connectionId}`, headers: AUTH })
+
+    const get = (id: string) => app.inject({ method: 'GET', url: `/tenant/${TENANT_ID}/device/${id}`, headers: AUTH })
+    expect((await get(d1)).json().data.elements[0].deviceConnectionIds).toEqual([])
+    expect((await get(d2)).json().data.elements[0].deviceConnectionIds).toEqual([])
   })
 
   it('a connection created under one tenant is invisible/unpatchable/undeletable via another tenant URL', async () => {

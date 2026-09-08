@@ -86,14 +86,38 @@ export interface CustomRackDevice {
   updatedAt?: string;
 }
 
+/** A cable between two ports, possibly on devices in different racks —
+ *  matches the real app's own vocabulary (device1Id/port1Name/device2Id/
+ *  port2Name, confirmed against the reverse-engineered
+ *  devices.$deviceId.tsx and locations.$locationId.index.tsx routes); the
+ *  server's device-connection route double-writes both this and the older
+ *  fromDeviceId/fromPort/toDeviceId/toPort names onto the same columns, so
+ *  either vocabulary round-trips, but new code should read/write this one. */
 export interface DeviceConnection {
   _id?: string;
   id?: string;
-  fromDeviceId: string;
-  fromPort: string;
-  toDeviceId: string;
-  toPort: string;
+  device1Id: string;
+  port1Name: string;
+  device2Id: string;
+  port2Name: string;
+  /** Which faces the cable runs between, e.g. `"front-back"` — inferred
+   *  format, not directly observed. */
+  direction?: string;
+  /** Inferred value for a device-to-device (port-level) connection is
+   *  `'user'`, as opposed to `'building'` used for floor-level rack-to-rack
+   *  connections (t.$tenantId.locations.$locationId.index.tsx) — not
+   *  directly observed either. */
+  connectionType?: string;
   cableColor?: string;
+  cassetteColor?: string;
+  locationId?: string;
+  floorId?: string;
+  roomId?: string;
+  /** @deprecated older vocabulary for the same columns — see above. */
+  fromDeviceId?: string;
+  fromPort?: string;
+  toDeviceId?: string;
+  toPort?: string;
   type?: string;
 }
 

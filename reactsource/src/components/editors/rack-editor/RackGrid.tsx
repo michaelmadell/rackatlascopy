@@ -34,7 +34,9 @@ export default function RackGrid({
   selectedDeviceId,
   onSelectDevice,
   readOnly,
-  hoverRange
+  hoverRange,
+  deviceConnections = [],
+  onDeleteConnection
 }: {
   heightU: number;
   devices: any[];
@@ -43,6 +45,11 @@ export default function RackGrid({
   readOnly?: boolean;
   /** The full unit-span the item currently being dragged would occupy if dropped here, and whether that's a legal drop. */
   hoverRange?: HoverRange | null;
+  /** Cables to draw between device blocks — only ones where *both* ends are
+   *  in `devices` (i.e. both currently on-screen: same rack, same
+   *  front/back side) get a line; the rest are real but not drawn here. */
+  deviceConnections?: any[];
+  onDeleteConnection?: (connectionId: string) => void;
 }) {
   const units = Array.from({ length: heightU }, (_, i) => heightU - i);
 
@@ -52,6 +59,20 @@ export default function RackGrid({
     const span = device.heightU || 1;
     for (let u = start; u < start + span; u++) occupiedBy.set(u, device._id);
   }
+
+  // Same top/height math the device layer below uses, keyed by device id so
+  // the cable overlay can anchor a line to each end without recomputing it.
+  const blockRects = new Map<string, { top: number; height: number }>();
+  for (const device of devices) {
+    const start = device.unit || 1;
+    const span = device.heightU || 1;
+    const topUnit = start + span - 1;
+    const indexFromTop = heightU - topUnit;
+    blockRects.set(device._id, { top: indexFromTop * ROW_PX, height: span * ROW_PX });
+  }
+  const visibleConnections = deviceConnections
+    .map((c) => ({ conn: c, a: blockRects.get(c.device1Id), b: blockRects.get(c.device2Id) }))
+    .filter((x): x is { conn: any; a: { top: number; height: number }; b: { top: number; height: number } } => !!x.a && !!x.b);
 
   return (
     <div className="inline-block bg-[#0c0c0e] text-[#71717a] drop-shadow-xl" style={{ width: 440 }}>
@@ -95,6 +116,35 @@ export default function RackGrid({
             );
           })}
         </div>
+
+        {/* Cables, drawn as orthogonal "elbow" connectors off each device
+         * block's right edge — fanned out slightly (offset by index) so
+         * connections landing at similar heights don't perfectly overlap.
+         * overflow-visible because the elbow's outward jog sits a little
+         * past the 440px rack width. */}
+        {visibleConnections.length > 0 && (
+          <svg className="pointer-events-none absolute inset-0 overflow-visible">
+            {visibleConnections.map(({ conn, a, b }, i) => {
+              const ay = a.top + a.height / 2;
+              const by = b.top + b.height / 2;
+              const x = 450 + (i % 5) * 6;
+              return (
+                <path
+                  key={conn._id || conn.id || i}
+                  d={`M 435 ${ay} L ${x} ${ay} L ${x} ${by} L 435 ${by}`}
+                  fill="none"
+                  stroke="#3b82f6"
+                  strokeWidth={1.5}
+                  className={onDeleteConnection ? 'cursor-pointer hover:stroke-red-400' : undefined}
+                  style={{ pointerEvents: onDeleteConnection ? 'stroke' : 'none' }}
+                  onClick={() => onDeleteConnection?.(conn._id || conn.id)}
+                >
+                  <title>{`${conn.port1Name} ↔ ${conn.port2Name}${onDeleteConnection ? ' — click to remove' : ''}`}</title>
+                </path>
+              );
+            })}
+          </svg>
+        )}
       </div>
 
       <RackBottom className="w-full" style={{ height: BOTTOM_PX }} />

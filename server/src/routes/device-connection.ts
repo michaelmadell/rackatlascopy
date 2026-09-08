@@ -40,19 +40,91 @@ function rowToDoc(row: any): Record<string, unknown> {
   }
 }
 
+/**
+ * The frontend never queries `device_connections` directly to find what's
+ * connected to a device — it discovers connection ids by scanning each of
+ * the device's own port elements for a `deviceConnectionIds` array (see
+ * t.$tenantId.locations.$locationId.devices.$deviceId.tsx's
+ * subDevicesAndConnectionsQuery, which does exactly that walk). So a
+ * connection's id has to be written onto both endpoint ports' elements as
+ * part of creating it — this table alone is invisible to that page.
+ *
+ * A port is matched by its baked-in `number` (or `value`, a per-port name
+ * override — both are flattened onto every port element by the rack device
+ * editor at save time, see rack-device-editor/Dialog.tsx's handleSubmit),
+ * scoped to `kind: 'port'` elements only. A port that predates that baking
+ * (or was hand-edited without one) silently matches nothing — a real but
+ * narrow gap, not one this pass tries to close.
+ */
+function addConnectionToElement(
+  db: Database.Database,
+  tenantId: string,
+  deviceId: unknown,
+  portName: unknown,
+  connectionId: string
+): void {
+  if (!deviceId || !portName) return
+  const row = db.prepare('SELECT elements_json FROM devices WHERE id = ? AND tenant_id = ?').get(deviceId, tenantId) as
+    | { elements_json: string | null }
+    | undefined
+  if (!row?.elements_json) return
+  const elements = JSON.parse(row.elements_json) as Array<Record<string, unknown>>
+  const el = elements.find((e) => e.kind === 'port' && (e.number === portName || e.value === portName))
+  if (!el) return
+  const ids = new Set((el.deviceConnectionIds as string[] | undefined) ?? [])
+  ids.add(connectionId)
+  el.deviceConnectionIds = [...ids]
+  db.prepare('UPDATE devices SET elements_json = ? WHERE id = ? AND tenant_id = ?').run(
+    JSON.stringify(elements),
+    deviceId,
+    tenantId
+  )
+}
+
+/** The delete-side counterpart of addConnectionToElement — pulls a deleted
+ *  connection's id back off whichever port element(s) still carry it. Scans
+ *  every port rather than matching by name again since the connection row
+ *  (and the port name it pointed at) is already gone by the time this runs. */
+function removeConnectionFromElement(db: Database.Database, tenantId: string, deviceId: unknown, connectionId: string): void {
+  if (!deviceId) return
+  const row = db.prepare('SELECT elements_json FROM devices WHERE id = ? AND tenant_id = ?').get(deviceId, tenantId) as
+    | { elements_json: string | null }
+    | undefined
+  if (!row?.elements_json) return
+  const elements = JSON.parse(row.elements_json) as Array<Record<string, unknown>>
+  let changed = false
+  for (const el of elements) {
+    const ids = el.deviceConnectionIds as string[] | undefined
+    if (ids?.includes(connectionId)) {
+      el.deviceConnectionIds = ids.filter((id) => id !== connectionId)
+      changed = true
+    }
+  }
+  if (!changed) return
+  db.prepare('UPDATE devices SET elements_json = ? WHERE id = ? AND tenant_id = ?').run(
+    JSON.stringify(elements),
+    deviceId,
+    tenantId
+  )
+}
+
 function insertConnection(
   db: Database.Database,
   tenantId: string,
   c: Record<string, unknown>
 ): Record<string, unknown> {
   const id = randomUUID()
+  const fromDeviceId = c.fromDeviceId ?? c.device1Id ?? null
+  const fromPort = c.fromPort ?? c.port1Name ?? null
+  const toDeviceId = c.toDeviceId ?? c.device2Id ?? null
+  const toPort = c.toPort ?? c.port2Name ?? null
   db.prepare(insertSql).run(
     id,
     tenantId,
-    c.fromDeviceId ?? c.device1Id ?? null,
-    c.fromPort ?? c.port1Name ?? null,
-    c.toDeviceId ?? c.device2Id ?? null,
-    c.toPort ?? c.port2Name ?? null,
+    fromDeviceId,
+    fromPort,
+    toDeviceId,
+    toPort,
     c.cableColor ?? null,
     c.cassetteColor ?? null,
     c.type ?? c.connectionType ?? null,
@@ -61,6 +133,8 @@ function insertConnection(
     c.floorId ?? null,
     c.roomId ?? null
   )
+  addConnectionToElement(db, tenantId, fromDeviceId, fromPort, id)
+  addConnectionToElement(db, tenantId, toDeviceId, toPort, id)
   // Build the response from the row actually persisted, not the raw request
   // body — the body may carry extraneous or spoofed fields (e.g. a fake
   // tenantId) that must never be echoed back as if they were saved.
@@ -89,14 +163,19 @@ export function registerDeviceConnectionRoutes(app: FastifyInstance, db: Databas
 
     // All-or-nothing: a half-applied batch would leave the app's cached
     // connection ids pointing at rows that never existed.
+    const getForDelete = db.prepare('SELECT from_device_id, to_device_id FROM device_connections WHERE id = ? AND tenant_id = ?')
+    const del = db.prepare('DELETE FROM device_connections WHERE id = ? AND tenant_id = ?')
     const apply = db.transaction(() => {
       const created = toCreate.map((c) => insertConnection(db, tenantId, c))
       const deleted: string[] = []
-      const del = db.prepare('DELETE FROM device_connections WHERE id = ? AND tenant_id = ?')
       for (const id of toDelete) {
+        const row = getForDelete.get(id, tenantId) as { from_device_id: string; to_device_id: string } | undefined
         // Scoped by tenant: an id belonging to another tenant simply matches
         // nothing rather than deleting across the boundary.
-        if (del.run(id, tenantId).changes > 0) deleted.push(id)
+        if (!row || del.run(id, tenantId).changes === 0) continue
+        removeConnectionFromElement(db, tenantId, row.from_device_id, id)
+        removeConnectionFromElement(db, tenantId, row.to_device_id, id)
+        deleted.push(id)
       }
       return { created, deleted }
     })
@@ -194,8 +273,15 @@ export function registerDeviceConnectionRoutes(app: FastifyInstance, db: Databas
 
   app.delete('/tenant/:tenantId/device-connection/:id', async (req) => {
     const { tenantId, id } = req.params as { tenantId: string; id: string }
+    const row = db
+      .prepare('SELECT from_device_id, to_device_id FROM device_connections WHERE id = ? AND tenant_id = ?')
+      .get(id, tenantId) as { from_device_id: string; to_device_id: string } | undefined
     const result = db.prepare('DELETE FROM device_connections WHERE id = ? AND tenant_id = ?').run(id, tenantId)
     if (result.changes === 0) throw notFound('device-connection')
+    if (row) {
+      removeConnectionFromElement(db, tenantId, row.from_device_id, id)
+      removeConnectionFromElement(db, tenantId, row.to_device_id, id)
+    }
     return { success: true }
   })
 }

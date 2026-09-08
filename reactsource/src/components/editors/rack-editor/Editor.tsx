@@ -14,10 +14,12 @@ import {
 import { useAuthenticatedApi } from '@/hooks/useAuthenticatedApi';
 import { Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/patchdocs-ui';
 import { TbTrash, TbX } from 'react-icons/tb';
-import type { FaceElement } from '@/types';
+import type { FaceElement, DeviceConnection } from '@/types';
+import { computePortNumber } from '../rack-device-editor/layout-utils';
 import RackGrid, { ROW_PX, type HoverRange } from './RackGrid';
 import DevicePalette from './DevicePalette';
 import AddDeviceModal from './AddDeviceModal';
+import DevicePortsPanel, { type PendingConnection } from './DevicePortsPanel';
 import { getDeviceVisual } from './device-icon';
 
 /** A placed device's `elements` is its own frozen snapshot, never a live
@@ -94,6 +96,11 @@ export default function RackEditor({
   customRackDevices = [],
   initialSelectedDeviceId,
   onSelectedDeviceChange,
+  deviceConnections = [],
+  onCreateDeviceConnections,
+  onDeleteDeviceConnections,
+  connectionsListOpen,
+  setConnectionsListOpen,
 }: {
   rack?: any;
   subDevices?: any[];
@@ -105,6 +112,25 @@ export default function RackEditor({
   customRackDevices?: any[];
   initialSelectedDeviceId?: string;
   onSelectedDeviceChange?: (id: string | null) => void;
+  /** Real prop names the page hosting this editor already sends (see
+   *  t.$tenantId.locations.$locationId.devices.$deviceId.tsx) — connections
+   *  touching any of subDevices' ports, keyed by device1Id/port1Name/
+   *  device2Id/port2Name (see DeviceConnection in @/types). */
+  deviceConnections?: DeviceConnection[];
+  onCreateDeviceConnections?: (
+    connections: Array<{
+      locationId?: string;
+      device1Id: string;
+      port1Name: string;
+      device2Id: string;
+      port2Name: string;
+      direction: string;
+      connectionType: string;
+    }>
+  ) => Promise<void>;
+  onDeleteDeviceConnections?: (connectionIds: string[]) => Promise<void>;
+  connectionsListOpen?: boolean;
+  setConnectionsListOpen?: (open: boolean) => void;
   [key: string]: any;
 }) {
   const api = useAuthenticatedApi();
@@ -117,6 +143,11 @@ export default function RackEditor({
   const [dropError, setDropError] = useState<string | null>(null);
   const [pendingPlacement, setPendingPlacement] = useState<{ device: any; targetStart: number } | null>(null);
   const [inserting, setInserting] = useState(false);
+  // First-clicked port of an in-progress cable — cleared once the second
+  // click (on a *different* device) creates the connection, or by clicking
+  // the same port again to cancel.
+  const [pendingConnection, setPendingConnection] = useState<PendingConnection | null>(null);
+  const [connectError, setConnectError] = useState<string | null>(null);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
@@ -129,6 +160,12 @@ export default function RackEditor({
     const t = setTimeout(() => setDropError(null), 3000);
     return () => clearTimeout(t);
   }, [dropError]);
+
+  useEffect(() => {
+    if (!connectError) return;
+    const t = setTimeout(() => setConnectError(null), 3000);
+    return () => clearTimeout(t);
+  }, [connectError]);
 
   const heightU = rack?.heightU || 42;
   const tenantId = rack?.tenantId;
@@ -147,6 +184,50 @@ export default function RackEditor({
     await api.delete(`/tenant/${tenantId}/device/${id}`);
     selectDevice(null);
     invalidateSubDevices();
+  };
+
+  // A port click either starts a pending cable (nothing picked yet), cancels
+  // one (clicking the exact same port again), re-picks the start on the
+  // same device, or — clicking a port on a *different* device — finishes it
+  // by creating the connection.
+  const handlePortClick = async (device: any, element: FaceElement) => {
+    const portName = computePortNumber(element, device.elements || []);
+
+    if (!pendingConnection) {
+      setPendingConnection({ deviceId: device._id, deviceName: device.name, elementId: element.id, portName });
+      return;
+    }
+    if (pendingConnection.deviceId === device._id) {
+      setPendingConnection(pendingConnection.elementId === element.id ? null : { deviceId: device._id, deviceName: device.name, elementId: element.id, portName });
+      return;
+    }
+    if (!onCreateDeviceConnections) {
+      setConnectError('Connecting isn’t wired up here yet.');
+      return;
+    }
+    try {
+      await onCreateDeviceConnections([
+        {
+          locationId: rack?.locationId,
+          device1Id: pendingConnection.deviceId,
+          port1Name: pendingConnection.portName,
+          device2Id: device._id,
+          port2Name: portName,
+          // Inferred format (side1-side2) — not directly observed.
+          direction: `${subDevices.find((d) => d._id === pendingConnection.deviceId)?.elements?.find((e: FaceElement) => e.id === pendingConnection.elementId)?.side || 'front'}-${element.side}`,
+          connectionType: 'user'
+        }
+      ]);
+    } catch {
+      setConnectError('Could not create that connection.');
+    } finally {
+      setPendingConnection(null);
+    }
+  };
+
+  const handleDeleteConnection = async (connectionId: string) => {
+    if (!onDeleteDeviceConnections) return;
+    await onDeleteDeviceConnections([connectionId]);
   };
 
   const handleDragStart = (event: DragStartEvent) => {
@@ -242,22 +323,43 @@ export default function RackEditor({
         {!readOnly && <DevicePalette devices={customRackDevices} />}
 
         <div className="flex-1 overflow-y-auto p-6 flex flex-col items-center gap-3">
-          <div className="flex items-center gap-1 bg-[#18181b] border border-[#27272a] rounded-lg p-1">
-            {(['front', 'back'] as const).map((s) => (
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1 bg-[#18181b] border border-[#27272a] rounded-lg p-1">
+              {(['front', 'back'] as const).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setSide(s)}
+                  className={`px-4 py-1 rounded text-xs font-medium capitalize ${
+                    side === s ? 'bg-[#27272a] text-[#f4f4f5]' : 'text-[#a1a1aa]'
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+            {setConnectionsListOpen && (
               <button
-                key={s}
                 type="button"
-                onClick={() => setSide(s)}
-                className={`px-4 py-1 rounded text-xs font-medium capitalize ${
-                  side === s ? 'bg-[#27272a] text-[#f4f4f5]' : 'text-[#a1a1aa]'
+                onClick={() => setConnectionsListOpen(!connectionsListOpen)}
+                className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
+                  connectionsListOpen
+                    ? 'border-blue-400 bg-blue-500/10 text-blue-400'
+                    : 'border-[#27272a] bg-[#18181b] text-[#a1a1aa] hover:text-[#f4f4f5]'
                 }`}
               >
-                {s}
+                Connections{deviceConnections.length > 0 ? ` (${deviceConnections.length})` : ''}
               </button>
-            ))}
+            )}
           </div>
 
           {dropError && <p className="text-xs text-red-400">{dropError}</p>}
+          {connectError && <p className="text-xs text-red-400">{connectError}</p>}
+          {pendingConnection && !readOnly && (
+            <p className="text-xs text-blue-400">
+              Connecting from {pendingConnection.deviceName} {pendingConnection.portName} — select a port on another device.
+            </p>
+          )}
 
           {isLoading ? (
             <p className="text-xs text-[#a1a1aa]">Loading…</p>
@@ -269,21 +371,36 @@ export default function RackEditor({
               onSelectDevice={selectDevice}
               readOnly={readOnly}
               hoverRange={hoverRange}
+              deviceConnections={deviceConnections}
+              onDeleteConnection={readOnly ? undefined : handleDeleteConnection}
             />
           )}
         </div>
 
-        <RackSidePanel
-          rack={rack}
-          selectedDevice={selectedDevice}
-          readOnly={readOnly}
-          customRackDevices={customRackDevices}
-          onRackUpdate={onRackUpdate}
-          onDeleteRack={onDeleteRack}
-          onDeviceUpdate={onDeviceUpdate}
-          onDeleteDevice={handleDeleteDevice}
-          onClose={() => selectDevice(null)}
-        />
+        {connectionsListOpen ? (
+          <ConnectionsListPanel
+            connections={deviceConnections}
+            subDevices={subDevices}
+            readOnly={readOnly}
+            onDelete={handleDeleteConnection}
+            onClose={() => setConnectionsListOpen?.(false)}
+          />
+        ) : (
+          <RackSidePanel
+            rack={rack}
+            selectedDevice={selectedDevice}
+            readOnly={readOnly}
+            customRackDevices={customRackDevices}
+            deviceConnections={deviceConnections}
+            pendingConnection={pendingConnection}
+            onPortClick={handlePortClick}
+            onRackUpdate={onRackUpdate}
+            onDeleteRack={onDeleteRack}
+            onDeviceUpdate={onDeviceUpdate}
+            onDeleteDevice={handleDeleteDevice}
+            onClose={() => selectDevice(null)}
+          />
+        )}
       </div>
 
       <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.2, 0, 0, 1)' }}>
@@ -321,6 +438,9 @@ function RackSidePanel({
   selectedDevice,
   readOnly,
   customRackDevices,
+  deviceConnections,
+  pendingConnection,
+  onPortClick,
   onRackUpdate,
   onDeleteRack,
   onDeviceUpdate,
@@ -331,6 +451,9 @@ function RackSidePanel({
   selectedDevice?: any;
   readOnly?: boolean;
   customRackDevices: any[];
+  deviceConnections: DeviceConnection[];
+  pendingConnection: PendingConnection | null;
+  onPortClick: (device: any, element: FaceElement) => void;
   onRackUpdate?: (data: any) => Promise<boolean> | void;
   onDeleteRack?: () => Promise<boolean> | void;
   onDeviceUpdate?: (id: string, data: any) => Promise<boolean>;
@@ -344,6 +467,9 @@ function RackSidePanel({
         device={selectedDevice}
         readOnly={readOnly}
         customRackDevices={customRackDevices}
+        deviceConnections={deviceConnections}
+        pendingConnection={pendingConnection}
+        onPortClick={onPortClick}
         onUpdate={onDeviceUpdate}
         onDelete={() => onDeleteDevice(selectedDevice._id)}
         onClose={onClose}
@@ -411,6 +537,9 @@ function DeviceProperties({
   device,
   readOnly,
   customRackDevices,
+  deviceConnections,
+  pendingConnection,
+  onPortClick,
   onUpdate,
   onDelete,
   onClose
@@ -418,6 +547,9 @@ function DeviceProperties({
   device: any;
   readOnly?: boolean;
   customRackDevices: any[];
+  deviceConnections: DeviceConnection[];
+  pendingConnection: PendingConnection | null;
+  onPortClick: (device: any, element: FaceElement) => void;
   onUpdate?: (id: string, data: any) => Promise<boolean>;
   onDelete: () => void;
   onClose: () => void;
@@ -516,6 +648,14 @@ function DeviceProperties({
         <p className="mt-1 text-[10px] text-[#52525b]">Linking replaces this device's ports with the catalog device's layout.</p>
       </div>
 
+      <DevicePortsPanel
+        device={device}
+        deviceConnections={deviceConnections}
+        pendingConnection={pendingConnection}
+        onPortClick={(el) => onPortClick(device, el)}
+        readOnly={readOnly}
+      />
+
       {!readOnly && (
         <div className="flex gap-2 pt-2">
           <Button size="sm" onClick={handleSave}>
@@ -526,6 +666,58 @@ function DeviceProperties({
           </Button>
         </div>
       )}
+    </aside>
+  );
+}
+
+/** Every connection touching this rack's devices, in one flat list — the
+ *  fallback for pairs the SVG overlay in RackGrid doesn't draw a line for
+ *  (a connection whose other end isn't on-screen: a different rack, or the
+ *  opposite front/back side). */
+function ConnectionsListPanel({
+  connections,
+  subDevices,
+  readOnly,
+  onDelete,
+  onClose
+}: {
+  connections: DeviceConnection[];
+  subDevices: any[];
+  readOnly?: boolean;
+  onDelete: (id: string) => void;
+  onClose: () => void;
+}) {
+  const nameFor = (id: string) => subDevices.find((d) => d._id === id)?.name || 'Unknown device';
+
+  return (
+    <aside className="w-72 border-l border-[#27272a] p-4 text-xs space-y-3 shrink-0 overflow-y-auto">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold">Connections</h3>
+        <button type="button" onClick={onClose} className="text-[#a1a1aa] hover:text-[#f4f4f5]">
+          <TbX className="size-4" />
+        </button>
+      </div>
+      {connections.length === 0 && <p className="text-[#71717a]">No connections yet.</p>}
+      <ul className="space-y-1.5">
+        {connections.map((c) => {
+          const id = c._id || c.id;
+          return (
+            <li key={id} className="rounded-sm border border-[#27272a] bg-[#18181b] p-2">
+              <p className="truncate text-[#f4f4f5]">
+                {nameFor(c.device1Id)} <span className="text-[#71717a]">{c.port1Name}</span>
+              </p>
+              <p className="truncate text-[#f4f4f5]">
+                ↕ {nameFor(c.device2Id)} <span className="text-[#71717a]">{c.port2Name}</span>
+              </p>
+              {!readOnly && id && (
+                <button type="button" onClick={() => onDelete(id)} className="mt-1 text-[10px] text-red-400 hover:text-red-300">
+                  Remove
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
     </aside>
   );
 }
