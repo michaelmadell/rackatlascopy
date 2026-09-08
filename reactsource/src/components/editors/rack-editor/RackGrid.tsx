@@ -338,10 +338,11 @@ export default function RackGrid({
 
         <div className="relative" style={{ height: heightU * ROW_PX }}>
           <div className="absolute inset-0 flex flex-col">
-            {units.map((u) => (
+            {units.map((u, i) => (
               <RackSlot
                 key={u}
                 unit={u}
+                slotIndex={i}
                 occupied={occupiedBy.has(u)}
                 readOnly={readOnly}
                 hoverState={
@@ -447,11 +448,16 @@ export default function RackGrid({
 
 function RackSlot({
   unit,
+  slotIndex,
   occupied,
   readOnly,
   hoverState
 }: {
   unit: number;
+  /** 0-based render position from the top — real markup carries this as
+   *  `data-slot-index` alongside `data-height-unit` (the rack's own
+   *  numbering, e.g. 42 down to 1). */
+  slotIndex: number;
   occupied: boolean;
   readOnly?: boolean;
   hoverState: 'valid' | 'invalid' | null;
@@ -474,7 +480,7 @@ function RackSlot({
             : ''
       }`}
     >
-      <RackMiddle unitNumber={unit} className="w-full h-full" />
+      <RackMiddle unitNumber={unit} slotIndex={slotIndex} className="w-full h-full" />
     </div>
   );
 }
