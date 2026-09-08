@@ -15,55 +15,80 @@ const RACK_WIDTH = 440;
 // cable visibly lands short of / past the tick it's supposed to touch.
 const DEVICE_LEFT = 20;
 const DEVICE_RIGHT = RACK_WIDTH - 20;
-// A dedicated lane strip to the right of the rack proper, real rather than
-// this session's earlier ad-hoc "just extend a bit past 440 with
-// overflow-visible" — the point raised against that: cables must stay
-// *inside* the rack's own visual footprint, not spill into the page.
+// Dedicated lane strips on *both* sides of the rack proper — a real
+// screen recording showed cables routed left as often as right, not just
+// right (this session's earlier assumption). Both gutters are part of the
+// same visual footprint (the outer container below is sized to include
+// them), never spilling into the surrounding page the way an
+// overflow-visible jog off the device edge used to.
 const GUTTER = 72;
-const LANE_START = RACK_WIDTH + 12;
+const LANE_START_RIGHT = RACK_WIDTH + 12;
+const LANE_START_LEFT = -12;
 const LANE_GAP = 7;
 const CORNER_R = 5;
 
-/** Greedy interval-scheduling lane assignment: the cable that would occupy
- *  the vertical run [top,bottom] first at a given height goes in the
- *  first lane whose last-placed cable already cleared that height, else it
- *  opens a new lane. Doesn't match the real router's own algorithm (nor
- *  its two-sided left/right routing — everything here goes out the right),
- *  but produces the same *effect* the real markup shows: overlapping
- *  connections stack into progressively farther-out parallel lanes instead
- *  of drawing on top of each other. */
-function assignLanes(items: Array<{ key: string; top: number; bottom: number }>): Map<string, number> {
-  const laneBottoms: number[] = [];
-  const laneOf = new Map<string, number>();
+/** Greedy interval-scheduling lane assignment across *two* sides: the
+ *  cable that would occupy the vertical run [top,bottom] first at a given
+ *  height goes in the first still-clear lane on whichever side already
+ *  has room, opening a new lane (on the side with fewer lanes so far, to
+ *  keep both sides roughly balanced) only when neither does. Doesn't
+ *  match the real router's own algorithm — that's not reverse-
+ *  engineerable from a video alone — but produces the same *effect* the
+ *  recording shows: connections spread across both sides and overlapping
+ *  ones stack into parallel lanes instead of drawing on top of each
+ *  other. */
+function assignLanes(
+  items: Array<{ key: string; top: number; bottom: number }>
+): Map<string, { side: 'left' | 'right'; lane: number }> {
+  const leftLanes: number[] = [];
+  const rightLanes: number[] = [];
+  const result = new Map<string, { side: 'left' | 'right'; lane: number }>();
+  const firstFreeLane = (lanes: number[], top: number) => lanes.findIndex((bottom) => bottom < top - 2);
   const sorted = [...items].sort((a, b) => a.top - b.top);
+
   for (const item of sorted) {
-    let lane = laneBottoms.findIndex((bottom) => bottom < item.top - 2);
-    if (lane === -1) {
-      lane = laneBottoms.length;
-      laneBottoms.push(item.bottom);
+    const leftFree = firstFreeLane(leftLanes, item.top);
+    const rightFree = firstFreeLane(rightLanes, item.top);
+    let side: 'left' | 'right';
+    let lane: number;
+    if (leftFree !== -1 && rightFree !== -1) {
+      side = leftLanes.length <= rightLanes.length ? 'left' : 'right';
+      lane = side === 'left' ? leftFree : rightFree;
+    } else if (leftFree !== -1) {
+      side = 'left';
+      lane = leftFree;
+    } else if (rightFree !== -1) {
+      side = 'right';
+      lane = rightFree;
     } else {
-      laneBottoms[lane] = item.bottom;
+      side = leftLanes.length <= rightLanes.length ? 'left' : 'right';
+      lane = side === 'left' ? leftLanes.length : rightLanes.length;
     }
-    laneOf.set(item.key, lane);
+    const lanes = side === 'left' ? leftLanes : rightLanes;
+    lanes[lane] = item.bottom;
+    result.set(item.key, { side, lane });
   }
-  return laneOf;
+  return result;
 }
 
 /** An orthogonal cable with rounded corners, routed straight-out to a
  *  shared vertical lane and straight back in — the same three-straights-
- *  two-rounded-corners shape the real app's own `<path>`s use (there just
- *  with `Q` quadratic-bezier corners and, in the real version, lanes on
- *  both sides of the rack rather than only the right). */
+ *  two-rounded-corners shape the real app's own `<path>`s use (`Q`
+ *  quadratic-bezier corners). Symmetric in `laneX` vs. `ax`/`bx` so the
+ *  same function draws both left-routed (laneX below both anchors) and
+ *  right-routed (laneX above both) cables. */
 function elbowPath(ax: number, ay: number, bx: number, by: number, laneX: number): string {
+  const hDirA = laneX >= ax ? 1 : -1;
+  const hDirB = laneX >= bx ? 1 : -1;
   if (Math.abs(by - ay) < 0.5) return `M ${ax} ${ay} L ${laneX} ${ay} L ${bx} ${by}`;
-  const dir = by > ay ? 1 : -1;
+  const vDir = by > ay ? 1 : -1;
   const r = Math.min(CORNER_R, Math.abs(by - ay) / 2);
   return [
     `M ${ax} ${ay}`,
-    `L ${laneX - r} ${ay}`,
-    `Q ${laneX} ${ay} ${laneX} ${ay + r * dir}`,
-    `L ${laneX} ${by - r * dir}`,
-    `Q ${laneX} ${by} ${laneX - r} ${by}`,
+    `L ${laneX - r * hDirA} ${ay}`,
+    `Q ${laneX} ${ay} ${laneX} ${ay + r * vDir}`,
+    `L ${laneX} ${by - r * vDir}`,
+    `Q ${laneX} ${by} ${laneX - r * hDirB} ${by}`,
     `L ${bx} ${by}`
   ].join(' ');
 }
@@ -179,8 +204,8 @@ export default function RackGrid({
   const rackHeight = TOP_PX + heightU * ROW_PX + BOTTOM_PX;
 
   return (
-    <div className="relative inline-block bg-[#0c0c0e] text-[#71717a] drop-shadow-xl" style={{ width: RACK_WIDTH + GUTTER }}>
-      <div style={{ width: RACK_WIDTH }}>
+    <div className="relative inline-block bg-[#0c0c0e] text-[#71717a] drop-shadow-xl" style={{ width: RACK_WIDTH + GUTTER * 2 }}>
+      <div style={{ width: RACK_WIDTH, marginLeft: GUTTER }}>
         <RackTop className="w-full" style={{ height: TOP_PX }} />
 
         <div className="relative" style={{ height: heightU * ROW_PX }}>
@@ -227,22 +252,28 @@ export default function RackGrid({
         <RackBottom className="w-full" style={{ height: BOTTOM_PX }} />
       </div>
 
-      {/* Cables — confined to the rack's own footprint (RACK_WIDTH+GUTTER,
-       * set on the outer relative container above), never spilling into
-       * the surrounding page the way an overflow-visible jog off the
-       * device edge used to. Routed straight out to a shared lane in the
-       * gutter, then straight to the target row, with rounded corners —
-       * the same three-straights/two-corners shape the real app's own
-       * cable paths use. */}
+      {/* Cables — confined to the rack's own footprint (RACK_WIDTH + a
+       * gutter on *each* side, set on the outer relative container above),
+       * never spilling into the surrounding page the way an
+       * overflow-visible jog off the device edge used to. anchorsFor()
+       * and the lane constants are all rack-local (0 = the rack proper's
+       * own left edge, which sits GUTTER px into this outer container —
+       * see its marginLeft above), so every x gets +GUTTER here at draw
+       * time rather than threading an offset through the anchor math. */}
       {visibleConnections.length > 0 && (
-        <svg className="pointer-events-none absolute inset-0" width={RACK_WIDTH + GUTTER} height={rackHeight}>
+        <svg className="pointer-events-none absolute inset-0" width={RACK_WIDTH + GUTTER * 2} height={rackHeight}>
           {visibleConnections.map(({ conn, anchors }) => {
             const id = conn._id || conn.id || '';
-            const laneX = LANE_START + (laneOf.get(id) || 0) * LANE_GAP;
+            const placement = laneOf.get(id) || { side: 'right' as const, lane: 0 };
+            // Each further lane moves *outward* — more positive on the
+            // right, more negative on the left — so overlapping cables
+            // fan away from the rack rather than stacking on one line.
+            const laneX =
+              GUTTER + (placement.side === 'right' ? LANE_START_RIGHT + placement.lane * LANE_GAP : LANE_START_LEFT - placement.lane * LANE_GAP);
             return (
               <path
                 key={id}
-                d={elbowPath(anchors.ax, anchors.ay, anchors.bx, anchors.by, laneX)}
+                d={elbowPath(GUTTER + anchors.ax, anchors.ay, GUTTER + anchors.bx, anchors.by, laneX)}
                 fill="none"
                 stroke="#3b82f6"
                 strokeWidth={1.5}
