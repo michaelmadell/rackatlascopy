@@ -371,6 +371,7 @@ export default function RackEditor({
               onSelectDevice={selectDevice}
               readOnly={readOnly}
               hoverRange={hoverRange}
+              viewSide={side}
               deviceConnections={deviceConnections}
               onDeleteConnection={readOnly ? undefined : handleDeleteConnection}
             />

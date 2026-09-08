@@ -1,5 +1,8 @@
 import { useDraggable } from '@dnd-kit/core';
 import { getDeviceVisual } from './device-icon';
+import { getPortTypeDef } from '../rack-device-editor/port-types';
+import { portFraction } from '../rack-device-editor/layout-utils';
+import type { FaceElement, Side } from '@/types';
 
 /**
  * A placed device, positioned by the parent RackGrid (absolute top/height in
@@ -15,7 +18,8 @@ export default function DeviceBlock({
   height,
   selected,
   onSelect,
-  readOnly
+  readOnly,
+  viewSide
 }: {
   device: any;
   top: number;
@@ -23,6 +27,12 @@ export default function DeviceBlock({
   selected?: boolean;
   onSelect?: () => void;
   readOnly?: boolean;
+  /** Real rack elevations show a device's ports right on its own block (see
+   *  the real app's `<g class="port">` elements sitting inside
+   *  `device-content`), not tucked away in a side panel only — this is the
+   *  "which side of the device am I looking at" filter for that, distinct
+   *  from `device.side` (which side of the *rack* it's mounted facing). */
+  viewSide: Side;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `device-${device._id}`,
@@ -40,6 +50,8 @@ export default function DeviceBlock({
   }
 
   const { Icon, color } = getDeviceVisual(device.type);
+  const ports: FaceElement[] = (device.elements || []).filter((e: FaceElement) => e.kind === 'port' && e.side === viewSide);
+  const subRows = (device.heightU || 1) * 2; // SUB_ROWS_PER_U, kept a literal to dodge an extra import for one constant
 
   return (
     <button
@@ -55,6 +67,30 @@ export default function DeviceBlock({
           : 'border-[#3f3f46] text-[#d4d4d8] hover:border-[#52525b] hover:shadow-md'
       } ${readOnly ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'}`}
     >
+      {/* Port ticks, painted first so the name/icon/U-badge below sit on
+       * top of them where they'd otherwise overlap — real markup gives
+       * ports the device's *entire* face with no name text competing for
+       * room; ours keeps the label, so this is a compromise, not a copy. */}
+      {ports.length > 0 && (
+        <div className="pointer-events-none absolute inset-0">
+          {ports.map((p) => {
+            const def = getPortTypeDef(p.portType || '');
+            const PortIcon = def?.icon;
+            if (!PortIcon) return null;
+            const { x, y } = portFraction(p, subRows);
+            return (
+              <span
+                key={p.id}
+                className="absolute text-[#f4f4f5]/50"
+                style={{ left: `${x * 100}%`, top: `${y * 100}%`, transform: 'translate(-50%, -50%)' }}
+              >
+                <PortIcon className="size-1.5" />
+              </span>
+            );
+          })}
+        </div>
+      )}
+
       <Icon className="size-3.5 shrink-0" style={{ color }} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[11px] leading-tight">{device.name}</span>

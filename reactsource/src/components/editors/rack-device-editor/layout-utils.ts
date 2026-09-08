@@ -1,4 +1,28 @@
 import type { FaceElement, Side } from './port-types';
+import { PORT_COLUMNS } from './port-types';
+
+/** A port's position within its device's own face, as fractions (0..1) of
+ *  the device's width/height — shared by the rack-device-editor's own grid
+ *  math and, more importantly, the rack elevation (DeviceBlock's on-block
+ *  port ticks and RackGrid's cable anchors both need the exact same
+ *  col/row → fraction mapping so a cable actually lands on the tick it's
+ *  supposed to). `subRows` is the *device's own* row count
+ *  (heightU * SUB_ROWS_PER_U), not the rack's. */
+export function portFraction(el: FaceElement, subRows: number): { x: number; y: number } {
+  return {
+    x: (el.col + 0.5) / PORT_COLUMNS,
+    y: (el.row + 0.5) / Math.max(subRows, 1)
+  };
+}
+
+/** Resolves a connection's `port1Name`/`port2Name` back to the actual
+ *  FaceElement on a device — the only handle a DeviceConnection has on a
+ *  port is its computed name, so a real anchor point needs this reverse
+ *  lookup (mirrors how the server matches a port by name in
+ *  device-connection.ts's addConnectionToElement). */
+export function findPortElement(elements: FaceElement[], portName: string): FaceElement | undefined {
+  return elements.find((el) => el.kind === 'port' && computePortNumber(el, elements) === portName);
+}
 
 /** Ports sharing a group share idPrefix/connectorType/countingDirection and
  *  number together, ordered column-major (down each column fully before
