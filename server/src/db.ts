@@ -185,7 +185,17 @@ function migrate(db: Database.Database): void {
     // anything the port/connection model reads.
     manufacturer: 'TEXT',
     model_name: 'TEXT',
-    serial_number: 'TEXT'
+    serial_number: 'TEXT',
+    // Rack/Device settings-panel fields confirmed against a screenshot
+    // sequence (screenshots/Screenshot 2026-09-08 105358..105449.png).
+    // `reference` and `responsible_user_id` already exist above — a Rack
+    // is a Device row too, so this same table backs both panels.
+    purchase_date: 'TEXT',
+    operation_start: 'TEXT',
+    // Data-URI thumbnails — no real file/object storage in this local
+    // clone, so a photo round-trips straight through this JSON column.
+    photos_json: 'TEXT',
+    notes: 'TEXT'
   })
   addColumns(db, 'device_connections', {
     direction: 'TEXT',

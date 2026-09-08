@@ -35,6 +35,13 @@ const deviceColumns = [
   { db: 'manufacturer', api: 'manufacturer' },
   { db: 'model_name', api: 'modelName' },
   { db: 'serial_number', api: 'serialNumber' },
+  // Rack/Device settings-panel fields (confirmed against a screenshot
+  // sequence) — a Rack is a Device row too, so this same table/route
+  // backs both the Rack Settings and Device Settings panels.
+  { db: 'purchase_date', api: 'purchaseDate' },
+  { db: 'operation_start', api: 'operationStart' },
+  { db: 'photos_json', api: 'photos', json: true },
+  { db: 'notes', api: 'notes' },
   { db: 'unit', api: 'unit' },
   { db: 'height_u', api: 'heightU' },
   // ...index.tsx:1051 — same column, the name the app sends.
@@ -71,6 +78,10 @@ export function deviceRowToDoc(row: any): Record<string, unknown> {
     manufacturer: row.manufacturer,
     modelName: row.model_name,
     serialNumber: row.serial_number,
+    purchaseDate: row.purchase_date,
+    operationStart: row.operation_start,
+    photos: parse(row.photos_json, []),
+    notes: row.notes,
     unit: row.unit,
     heightU: row.height_u,
     rackUnitsCount: row.height_u,

@@ -215,6 +215,31 @@ export interface Device {
   manufacturer?: string;
   modelName?: string;
   serialNumber?: string;
+  /** The short human-readable code shown as "ID" at the top of both the
+   *  Rack and Device settings panels (e.g. "RK01", "SRV01") — confirmed
+   *  against a screenshot sequence. Same underlying column server-side as
+   *  `reference` elsewhere in this app (Location, Room, ...), just not
+   *  previously declared on this interface. A Rack is a `Device` row too
+   *  (see rack-editor/Editor.tsx's `rack` prop), so this one interface
+   *  covers both panels. */
+  reference?: string;
+  /** Same `responsible_user_id` column/convention already used by
+   *  Location/Room/Floor (see useResponsibleUserOptions) — not previously
+   *  declared here even though the server route already round-trips it. */
+  responsibleUserId?: string;
+  /** ISO date strings (`YYYY-MM-DD`) — a screenshot sequence showed both
+   *  as native date pickers on the Rack and Device settings panels. */
+  purchaseDate?: string;
+  operationStart?: string;
+  /** Data-URI thumbnails — this local clone has no real file/object
+   *  storage, so a photo is persisted straight into this JSON column
+   *  rather than through an upload endpoint. */
+  photos?: string[];
+  /** Free-form notes, same column/dialog convention as Vlan/Location/Room
+   *  (see NoteEditorDialogMdx's other call sites) — a screenshot sequence
+   *  showed the same "Add your first note… / Edit" section on both the
+   *  Rack and Device settings panels. */
+  notes?: string;
 }
 
 export interface Room {

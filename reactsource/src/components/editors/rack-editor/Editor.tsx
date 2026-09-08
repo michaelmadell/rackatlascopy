@@ -12,6 +12,7 @@ import {
   type Modifier
 } from '@dnd-kit/core';
 import { useAuthenticatedApi } from '@/hooks/useAuthenticatedApi';
+import { useResponsibleUserOptions } from '@/hooks/useResponsibleUserOptions';
 import { Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/patchdocs-ui';
 import { TbTrash, TbX } from 'react-icons/tb';
 import type { FaceElement, DeviceConnection } from '@/types';
@@ -24,6 +25,9 @@ import AddDeviceDialog from './AddDeviceDialog';
 import DevicePortsPanel from './DevicePortsPanel';
 import ConnectPortDialog from './ConnectPortDialog';
 import { getDeviceVisual } from './device-icon';
+import Combobox from '@/components/common/Combobox';
+import PhotosField from './PhotosField';
+import NotesField from './NotesField';
 
 /** A placed device's `elements` is its own frozen snapshot, never a live
  *  reference to the template it came from — editing the CustomRackDevice
@@ -587,23 +591,48 @@ function RackProperties({
   onUpdate?: (data: any) => Promise<boolean> | void;
   onDelete?: () => Promise<boolean> | void;
 }) {
+  const [reference, setReference] = useState(rack?.reference || '');
   const [name, setName] = useState(rack?.name || '');
+  const [responsibleUserId, setResponsibleUserId] = useState(rack?.responsibleUserId || '');
   const [heightU, setHeightU] = useState(rack?.heightU ?? 42);
+  const [manufacturer, setManufacturer] = useState(rack?.manufacturer || '');
+  const [modelName, setModelName] = useState(rack?.modelName || '');
+  const [serialNumber, setSerialNumber] = useState(rack?.serialNumber || '');
+  const [purchaseDate, setPurchaseDate] = useState(rack?.purchaseDate || '');
+  const [operationStart, setOperationStart] = useState(rack?.operationStart || '');
+  const [photos, setPhotos] = useState<string[]>(rack?.photos || []);
+  const userOptions = useResponsibleUserOptions();
 
   useEffect(() => {
+    setReference(rack?.reference || '');
     setName(rack?.name || '');
+    setResponsibleUserId(rack?.responsibleUserId || '');
     setHeightU(rack?.heightU ?? 42);
+    setManufacturer(rack?.manufacturer || '');
+    setModelName(rack?.modelName || '');
+    setSerialNumber(rack?.serialNumber || '');
+    setPurchaseDate(rack?.purchaseDate || '');
+    setOperationStart(rack?.operationStart || '');
+    setPhotos(rack?.photos || []);
   }, [rack?._id]);
 
   return (
     <aside className="w-72 border-l border-[#27272a] p-4 text-xs space-y-3 shrink-0 overflow-y-auto">
       <h3 className="font-semibold">Rack</h3>
       <div>
+        <Label>ID</Label>
+        <Input value={reference} onChange={(e: any) => setReference(e.target.value)} disabled={readOnly} />
+      </div>
+      <div>
         <Label>Name</Label>
         <Input value={name} onChange={(e: any) => setName(e.target.value)} disabled={readOnly} />
       </div>
       <div>
-        <Label>Height (U)</Label>
+        <Label>Responsible person</Label>
+        <Combobox options={userOptions} value={responsibleUserId} onChange={setResponsibleUserId} disabled={readOnly} />
+      </div>
+      <div>
+        <Label>Rack units</Label>
         <Input
           type="number"
           value={heightU}
@@ -611,9 +640,48 @@ function RackProperties({
           disabled={readOnly}
         />
       </div>
+      <div>
+        <Label>Manufacturer</Label>
+        <Input value={manufacturer} onChange={(e: any) => setManufacturer(e.target.value)} disabled={readOnly} />
+      </div>
+      <div>
+        <Label>Model name</Label>
+        <Input value={modelName} onChange={(e: any) => setModelName(e.target.value)} disabled={readOnly} />
+      </div>
+      <div>
+        <Label>Serial number</Label>
+        <Input value={serialNumber} onChange={(e: any) => setSerialNumber(e.target.value)} disabled={readOnly} />
+      </div>
+      <div>
+        <Label>Purchase date</Label>
+        <Input type="date" value={purchaseDate} onChange={(e: any) => setPurchaseDate(e.target.value)} disabled={readOnly} />
+      </div>
+      <div>
+        <Label>Operation start</Label>
+        <Input type="date" value={operationStart} onChange={(e: any) => setOperationStart(e.target.value)} disabled={readOnly} />
+      </div>
+
+      <PhotosField photos={photos} onChange={setPhotos} readOnly={readOnly} />
+
       {!readOnly && (
         <div className="flex gap-2 pt-2">
-          <Button size="sm" onClick={() => onUpdate?.({ name, heightU })}>
+          <Button
+            size="sm"
+            onClick={() =>
+              onUpdate?.({
+                reference,
+                name,
+                responsibleUserId: responsibleUserId || null,
+                heightU,
+                manufacturer,
+                modelName,
+                serialNumber,
+                purchaseDate,
+                operationStart,
+                photos
+              })
+            }
+          >
             Save
           </Button>
           {onDelete && (
@@ -623,6 +691,13 @@ function RackProperties({
           )}
         </div>
       )}
+
+      <NotesField
+        notes={rack?.notes || ''}
+        resourceName={rack?.name || ''}
+        readOnly={readOnly}
+        onSave={(content) => onUpdate?.({ notes: content })}
+      />
     </aside>
   );
 }
@@ -646,15 +721,21 @@ function DeviceProperties({
   onDelete: () => void;
   onClose: () => void;
 }) {
+  const [reference, setReference] = useState(device.reference || '');
   const [name, setName] = useState(device.name || '');
   const [type, setType] = useState(device.type || '');
   const [heightU, setHeightU] = useState(device.heightU ?? 1);
   const [unit, setUnit] = useState(device.unit ?? 1);
   const [side, setSide] = useState(device.side || 'front');
   const [customRackDeviceId, setCustomRackDeviceId] = useState(device.customRackDeviceId || '');
+  const [responsibleUserId, setResponsibleUserId] = useState(device.responsibleUserId || '');
   const [manufacturer, setManufacturer] = useState(device.manufacturer || '');
   const [modelName, setModelName] = useState(device.modelName || '');
   const [serialNumber, setSerialNumber] = useState(device.serialNumber || '');
+  const [purchaseDate, setPurchaseDate] = useState(device.purchaseDate || '');
+  const [operationStart, setOperationStart] = useState(device.operationStart || '');
+  const [photos, setPhotos] = useState<string[]>(device.photos || []);
+  const userOptions = useResponsibleUserOptions();
   // Per-port edits (Port name/Speed/VLAN from DevicePortsPanel) land here
   // first, not straight onto `device` — null means "no local edits yet",
   // distinct from an edited-but-empty array, so Save knows whether to
@@ -665,15 +746,20 @@ function DeviceProperties({
   const [elementsDraft, setElementsDraft] = useState<FaceElement[] | null>(null);
 
   useEffect(() => {
+    setReference(device.reference || '');
     setName(device.name || '');
     setType(device.type || '');
     setHeightU(device.heightU ?? 1);
     setUnit(device.unit ?? 1);
     setSide(device.side || 'front');
     setCustomRackDeviceId(device.customRackDeviceId || '');
+    setResponsibleUserId(device.responsibleUserId || '');
     setManufacturer(device.manufacturer || '');
     setModelName(device.modelName || '');
     setSerialNumber(device.serialNumber || '');
+    setPurchaseDate(device.purchaseDate || '');
+    setOperationStart(device.operationStart || '');
+    setPhotos(device.photos || []);
     setElementsDraft(null);
   }, [device._id]);
 
@@ -682,7 +768,21 @@ function DeviceProperties({
   };
 
   const handleSave = () => {
-    const patch: Record<string, any> = { name, type, heightU, unit, side, manufacturer, modelName, serialNumber };
+    const patch: Record<string, any> = {
+      reference,
+      name,
+      type,
+      heightU,
+      unit,
+      side,
+      responsibleUserId: responsibleUserId || null,
+      manufacturer,
+      modelName,
+      serialNumber,
+      purchaseDate,
+      operationStart,
+      photos
+    };
     // Only touch elements/customRackDeviceId when the picked template
     // actually changed — every other field save (renaming, moving a U)
     // must never silently reset a device's ports.
@@ -703,6 +803,10 @@ function DeviceProperties({
         <button type="button" onClick={onClose} className="text-[#a1a1aa] hover:text-[#f4f4f5]">
           <TbX className="size-4" />
         </button>
+      </div>
+      <div>
+        <Label>ID</Label>
+        <Input value={reference} onChange={(e: any) => setReference(e.target.value)} disabled={readOnly} />
       </div>
       <div>
         <Label>Name</Label>
@@ -733,6 +837,10 @@ function DeviceProperties({
         </Select>
       </div>
       <div>
+        <Label>Responsible person</Label>
+        <Combobox options={userOptions} value={responsibleUserId} onChange={setResponsibleUserId} disabled={readOnly} />
+      </div>
+      <div>
         <Label>Manufacturer</Label>
         <Input value={manufacturer} onChange={(e: any) => setManufacturer(e.target.value)} disabled={readOnly} />
       </div>
@@ -744,6 +852,17 @@ function DeviceProperties({
         <Label>Serial number</Label>
         <Input value={serialNumber} onChange={(e: any) => setSerialNumber(e.target.value)} disabled={readOnly} />
       </div>
+      <div>
+        <Label>Purchase date</Label>
+        <Input type="date" value={purchaseDate} onChange={(e: any) => setPurchaseDate(e.target.value)} disabled={readOnly} />
+      </div>
+      <div>
+        <Label>Operation start</Label>
+        <Input type="date" value={operationStart} onChange={(e: any) => setOperationStart(e.target.value)} disabled={readOnly} />
+      </div>
+
+      <PhotosField photos={photos} onChange={setPhotos} readOnly={readOnly} />
+
       <div>
         <Label>Catalog device</Label>
         <Select
@@ -791,6 +910,13 @@ function DeviceProperties({
           </Button>
         </div>
       )}
+
+      <NotesField
+        notes={device.notes || ''}
+        resourceName={device.name || ''}
+        readOnly={readOnly}
+        onSave={(content) => onUpdate?.(device._id, { notes: content })}
+      />
     </aside>
   );
 }
