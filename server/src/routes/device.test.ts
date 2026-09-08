@@ -114,6 +114,26 @@ describe('device routes', () => {
       expect(device.elements).toEqual(elements)
     })
 
+    it('links a placed device back to its CustomRackDevice template, alongside elements', async () => {
+      const elements = [{ id: 'p1', kind: 'port', side: 'front', col: 0, row: 0, portType: 'copper' }]
+      await makeDevice(TENANT_ID, {
+        name: 'Switch 1',
+        deviceType: 'switch',
+        floorId: 'flr-1',
+        customRackDeviceId: 'crd-1',
+        elements
+      })
+      const res = await app.inject({
+        method: 'POST',
+        url: `/tenant/${TENANT_ID}/device/bulk`,
+        headers: AUTH,
+        payload: { floorId: 'flr-1' }
+      })
+      const device = res.json().data[0]
+      expect(device.customRackDeviceId).toBe('crd-1')
+      expect(device.elements).toEqual(elements)
+    })
+
     it('creates nothing — it is a read', async () => {
       await app.inject({
         method: 'POST',

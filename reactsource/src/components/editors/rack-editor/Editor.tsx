@@ -14,10 +14,21 @@ import {
 import { useAuthenticatedApi } from '@/hooks/useAuthenticatedApi';
 import { Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/patchdocs-ui';
 import { TbTrash, TbX } from 'react-icons/tb';
+import type { FaceElement } from '@/types';
 import RackGrid, { ROW_PX, type HoverRange } from './RackGrid';
 import DevicePalette from './DevicePalette';
 import AddDeviceModal from './AddDeviceModal';
 import { getDeviceVisual } from './device-icon';
+
+/** A placed device's `elements` is its own frozen snapshot, never a live
+ *  reference to the template it came from — editing the CustomRackDevice
+ *  later must never reshuffle ports under a device that may already have
+ *  cables landed on specific ones. Every id is regenerated so placing the
+ *  same template twice (or re-linking one device twice) never lets two
+ *  elements collide on the same id. */
+function snapshotElements(templatePorts: FaceElement[] | undefined): FaceElement[] {
+  return (templatePorts || []).map((el) => ({ ...el, id: crypto.randomUUID() }));
+}
 
 type DragPayload = { kind: 'catalog' | 'existing'; device: any };
 
@@ -201,7 +212,12 @@ export default function RackEditor({
         type: catalogDevice.type,
         heightU: catalogDevice.rackUnits || 1,
         unit: pendingPlacement.targetStart,
-        side
+        side,
+        // Links this placed device back to the Device Library entry it came
+        // from, with its own frozen copy of that entry's port layout — see
+        // snapshotElements above.
+        customRackDeviceId: catalogDevice._id,
+        elements: snapshotElements(catalogDevice.ports)
       });
       invalidateSubDevices();
       setPendingPlacement(null);
@@ -261,6 +277,7 @@ export default function RackEditor({
           rack={rack}
           selectedDevice={selectedDevice}
           readOnly={readOnly}
+          customRackDevices={customRackDevices}
           onRackUpdate={onRackUpdate}
           onDeleteRack={onDeleteRack}
           onDeviceUpdate={onDeviceUpdate}
@@ -303,6 +320,7 @@ function RackSidePanel({
   rack,
   selectedDevice,
   readOnly,
+  customRackDevices,
   onRackUpdate,
   onDeleteRack,
   onDeviceUpdate,
@@ -312,6 +330,7 @@ function RackSidePanel({
   rack?: any;
   selectedDevice?: any;
   readOnly?: boolean;
+  customRackDevices: any[];
   onRackUpdate?: (data: any) => Promise<boolean> | void;
   onDeleteRack?: () => Promise<boolean> | void;
   onDeviceUpdate?: (id: string, data: any) => Promise<boolean>;
@@ -324,6 +343,7 @@ function RackSidePanel({
         key={selectedDevice._id}
         device={selectedDevice}
         readOnly={readOnly}
+        customRackDevices={customRackDevices}
         onUpdate={onDeviceUpdate}
         onDelete={() => onDeleteDevice(selectedDevice._id)}
         onClose={onClose}
@@ -390,12 +410,14 @@ function RackProperties({
 function DeviceProperties({
   device,
   readOnly,
+  customRackDevices,
   onUpdate,
   onDelete,
   onClose
 }: {
   device: any;
   readOnly?: boolean;
+  customRackDevices: any[];
   onUpdate?: (id: string, data: any) => Promise<boolean>;
   onDelete: () => void;
   onClose: () => void;
@@ -405,6 +427,7 @@ function DeviceProperties({
   const [heightU, setHeightU] = useState(device.heightU ?? 1);
   const [unit, setUnit] = useState(device.unit ?? 1);
   const [side, setSide] = useState(device.side || 'front');
+  const [customRackDeviceId, setCustomRackDeviceId] = useState(device.customRackDeviceId || '');
 
   useEffect(() => {
     setName(device.name || '');
@@ -412,7 +435,21 @@ function DeviceProperties({
     setHeightU(device.heightU ?? 1);
     setUnit(device.unit ?? 1);
     setSide(device.side || 'front');
+    setCustomRackDeviceId(device.customRackDeviceId || '');
   }, [device._id]);
+
+  const handleSave = () => {
+    const patch: Record<string, any> = { name, type, heightU, unit, side };
+    // Only touch elements/customRackDeviceId when the picked template
+    // actually changed — every other field save (renaming, moving a U)
+    // must never silently reset a device's ports.
+    if (customRackDeviceId !== (device.customRackDeviceId || '')) {
+      patch.customRackDeviceId = customRackDeviceId || null;
+      const template = customRackDevices.find((d) => d._id === customRackDeviceId);
+      patch.elements = customRackDeviceId ? snapshotElements(template?.ports) : [];
+    }
+    onUpdate?.(device._id, patch);
+  };
 
   return (
     <aside className="w-72 border-l border-[#27272a] p-4 text-xs space-y-3 shrink-0 overflow-y-auto">
@@ -450,10 +487,38 @@ function DeviceProperties({
           </SelectContent>
         </Select>
       </div>
+      <div>
+        <Label>Catalog device</Label>
+        <Select
+          value={customRackDeviceId || 'none'}
+          onValueChange={(v: string) => setCustomRackDeviceId(v === 'none' ? '' : v)}
+          disabled={readOnly}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="None">
+              {customRackDeviceId ? customRackDevices.find((d) => d._id === customRackDeviceId)?.name || 'Unknown device' : 'None'}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">None</SelectItem>
+            {customRackDevices.map((d) => (
+              <SelectItem key={d._id} value={d._id}>
+                {d.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {/* Picking a different device here replaces this device's ports
+         * with that catalog device's layout on Save — a fresh snapshot,
+         * not a live link, so a later edit to the catalog entry won't
+         * reach back and change ports out from under any cables already
+         * landed on this device. */}
+        <p className="mt-1 text-[10px] text-[#52525b]">Linking replaces this device's ports with the catalog device's layout.</p>
+      </div>
 
       {!readOnly && (
         <div className="flex gap-2 pt-2">
-          <Button size="sm" onClick={() => onUpdate?.(device._id, { name, type, heightU, unit, side })}>
+          <Button size="sm" onClick={handleSave}>
             Save
           </Button>
           <Button size="sm" variant="destructive" onClick={onDelete}>

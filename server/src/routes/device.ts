@@ -24,6 +24,11 @@ const deviceColumns = [
   // shares the `type` column with the legacy `type` alias above.
   { db: 'type', api: 'deviceType' },
   { db: 'custom_device_type_id', api: 'customDeviceTypeId' },
+  // Links a placed device back to the CustomRackDevice template it was
+  // placed/linked from (see rack-device-editor) — distinct from
+  // customDeviceTypeId above, which points at the coarser "Device Types"
+  // category registry and carries no port layout.
+  { db: 'custom_rack_device_id', api: 'customRackDeviceId' },
   { db: 'unit', api: 'unit' },
   { db: 'height_u', api: 'heightU' },
   // ...index.tsx:1051 — same column, the name the app sends.
@@ -56,6 +61,7 @@ export function deviceRowToDoc(row: any): Record<string, unknown> {
     type: row.type,
     deviceType: row.type,
     customDeviceTypeId: row.custom_device_type_id,
+    customRackDeviceId: row.custom_rack_device_id,
     unit: row.unit,
     heightU: row.height_u,
     rackUnitsCount: row.height_u,

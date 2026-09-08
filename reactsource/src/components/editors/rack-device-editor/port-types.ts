@@ -1,5 +1,12 @@
 import { CopperIcon, FiberIcon, SfpIcon, UsbAIcon, UsbCIcon, HdmiIcon, DpIcon, VgaIcon, Ps2Icon, AudioIcon } from './port-icons';
 import type { IconType } from 'react-icons';
+import type { CountingDirection, Side, FaceElement } from '@/types';
+
+// FaceElement/Side/CountingDirection now live in @/types — it's the shape
+// shared between CustomRackDevice.ports (this editor's template) and
+// Device.elements (a placed instance's own snapshot copy). Re-exported here
+// so every existing `from './port-types'` import in this editor keeps working.
+export type { CountingDirection, Side, FaceElement };
 
 export interface PortTypeDef {
   id: string;
@@ -31,52 +38,10 @@ export function getPortTypeDef(id: string): PortTypeDef | undefined {
   return PORT_TYPES.find((p) => p.id === id);
 }
 
-export const COUNTING_DIRECTIONS = [
+export const COUNTING_DIRECTIONS: { id: CountingDirection; label: string }[] = [
   { id: 'ltr', label: 'Left to right' },
   { id: 'rtl', label: 'Right to left' }
-] as const;
-
-export type CountingDirection = (typeof COUNTING_DIRECTIONS)[number]['id'];
-
-export type Side = 'front' | 'back';
-
-/** One cell on the device face — a real port (`kind: 'port'`) or a free
- *  label/icon annotation (`kind: 'text' | 'icon'`). Stored client-side while
- *  editing, then flattened into `CustomRackDevice.ports` on Create/Save —
- *  the existing `ports_json` column takes the richer shape as-is (opaque
- *  JSON), so no backend change was needed for text/icon elements. */
-export interface FaceElement {
-  id: string;
-  kind: 'port' | 'text' | 'icon';
-  side: Side;
-  col: number;
-  /** Sub-row this specific port sits in (0-indexed). Ports pasted from the
-   *  real editor showed this is a real 2D grid, not a single "row-less"
-   *  port that just stretches taller: growing a port vertically doesn't
-   *  make one wider box, it adds a whole *second numbered port* stacked
-   *  in the row below (data-port-row="1" alongside data-port-row="0",
-   *  each its own <span>01</span>/<span>02</span>) — the exact same thing
-   *  horizontal growth already does with columns. A group is therefore a
-   *  dense minCol..maxCol × minRow..maxRow rectangle of individual ports,
-   *  one FaceElement per occupied cell — never a single element spanning
-   *  multiple cells by itself. */
-  row: number;
-  /** Ports sharing a groupId share idPrefix/connectorType/countingDirection and renumber together. */
-  groupId?: string;
-  portType?: string;
-  connectorType?: string;
-  idPrefix?: string;
-  countingDirection?: CountingDirection;
-  /** Per-port name override (ports) or the label text / icon id (text/icon elements). */
-  value?: string;
-  /** Text/icon elements only. Unlike a port group (many FaceElements, one
-   *  per cell, dense rectangle), a single text/icon element IS the whole
-   *  block — resizing it grows its own span, it never spawns siblings.
-   *  Ports ignore these (their span always comes from the group
-   *  rectangle). Defaults to 1 when absent. */
-  colSpan?: number;
-  rowSpan?: number;
-}
+];
 
 /** Droppable port columns — cloned from the real editor's own grid-template
  *  (`grid-template-columns: 1fr repeat(28, 1fr) 1fr`): 28 port columns

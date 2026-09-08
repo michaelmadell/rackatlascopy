@@ -173,7 +173,13 @@ function migrate(db: Database.Database): void {
     floor_id: 'TEXT',
     category: 'TEXT',
     custom_device_type_id: 'TEXT',
-    elements_json: 'TEXT'
+    elements_json: 'TEXT',
+    // Links a placed device back to the CustomRackDevice template it was
+    // dropped from (distinct from custom_device_type_id, which points at
+    // the coarser "Device Types" category registry, not a port layout).
+    // A frozen snapshot: elements_json is copied from the template at
+    // placement/link time and never re-synced automatically.
+    custom_rack_device_id: 'TEXT'
   })
   addColumns(db, 'device_connections', {
     direction: 'TEXT',

@@ -97,12 +97,52 @@ export interface DeviceConnection {
   type?: string;
 }
 
+/** @deprecated Stale placeholder shape (free-form x/y) predating the real
+ *  face-editor model — nothing in the app actually stores DeviceElement
+ *  values in this shape. Kept only so any existing `import type` of it
+ *  doesn't break; use `FaceElement` for anything touching a device's real
+ *  port/text/icon layout. */
 export interface DeviceElement {
   id: string;
   type: string;
   x: number;
   y: number;
   properties?: Record<string, any>;
+}
+
+export type CountingDirection = 'ltr' | 'rtl';
+export type Side = 'front' | 'back';
+
+/** One cell on a device's face — a real port (`kind: 'port'`) or a free
+ *  label/icon annotation (`kind: 'text' | 'icon'`). Canonical shape shared
+ *  by two places: `CustomRackDevice.ports` (the Device Library template —
+ *  see rack-device-editor/port-types.ts, which re-exports this) and
+ *  `Device.elements` (a placed device's own per-instance copy, snapshotted
+ *  from a template at placement/link time — see rack-editor/Editor.tsx). */
+export interface FaceElement {
+  id: string;
+  kind: 'port' | 'text' | 'icon';
+  side: Side;
+  col: number;
+  /** Sub-row this specific port sits in (0-indexed) — a group is a dense
+   *  minCol..maxCol × minRow..maxRow rectangle of individual ports, one
+   *  FaceElement per occupied cell, never a single element spanning
+   *  multiple cells by itself (verified against real pasted markup: growing
+   *  a port vertically adds a second numbered port, doesn't stretch one). */
+  row: number;
+  /** Ports sharing a groupId share idPrefix/connectorType/countingDirection and renumber together. */
+  groupId?: string;
+  portType?: string;
+  connectorType?: string;
+  idPrefix?: string;
+  countingDirection?: CountingDirection;
+  /** Per-port name override (ports) or the label text / icon id (text/icon elements). */
+  value?: string;
+  /** Text/icon elements only — resizing grows this element's own span
+   *  rather than spawning siblings the way a port group's resize does.
+   *  Defaults to 1 when absent. */
+  colSpan?: number;
+  rowSpan?: number;
 }
 
 export interface Device {
@@ -122,6 +162,14 @@ export interface Device {
   ports?: any[];
   connections?: DeviceConnection[];
   floorPlanPosition?: { x: number; y: number };
+  /** Links this placed device back to the CustomRackDevice template it was
+   *  placed/linked from — distinct from customDeviceTypeId (the coarser
+   *  "Device Types" category registry), which carries no port layout. */
+  customRackDeviceId?: string;
+  /** This device's own port/text/icon layout — a frozen snapshot copied
+   *  from customRackDeviceId's template at placement/link time, never
+   *  re-synced automatically (see rack-editor/Editor.tsx). */
+  elements?: FaceElement[];
 }
 
 export interface Room {
