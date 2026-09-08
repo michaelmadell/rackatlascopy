@@ -3,30 +3,22 @@ import DeviceFaceGrid from '../rack-device-editor/DeviceFaceGrid';
 import { SUB_ROWS_PER_U } from '../rack-device-editor/port-types';
 import type { FaceElement, Side, DeviceConnection } from '@/types';
 
-export interface PendingConnection {
-  deviceId: string;
-  deviceName: string;
-  elementId: string;
-  portName: string;
-}
-
 /** Read-only render of a placed device's own port face (reuses
  *  rack-device-editor's DeviceFaceGrid — readOnly hides its resize handles,
- *  but a port's click-to-select still fires) plus the click-to-connect
- *  interaction: clicking a port here either starts a pending connection (if
- *  none is active) or, if one is already pending *on a different device*,
- *  finishes it. Ports already carrying a cable are marked so a second cable
- *  isn't accidentally landed on the same jack. */
+ *  but a port's click-to-select still fires): clicking a port opens the
+ *  ConnectPortDialog for it (see Editor.tsx) — the real editor's own
+ *  connections flow is a dialog, not a click-elsewhere-on-canvas
+ *  interaction, so there's no "pending" state to track here anymore.
+ *  Ports already carrying a cable are marked so it's clear at a glance
+ *  which jacks are already in use. */
 export default function DevicePortsPanel({
   device,
   deviceConnections,
-  pendingConnection,
   onPortClick,
   readOnly
 }: {
   device: any;
   deviceConnections: DeviceConnection[];
-  pendingConnection: PendingConnection | null;
   onPortClick: (element: FaceElement) => void;
   readOnly?: boolean;
 }) {
@@ -35,7 +27,6 @@ export default function DevicePortsPanel({
   if (elements.length === 0) return null;
 
   const subRows = (device.heightU || 1) * SUB_ROWS_PER_U;
-  const isPendingHere = pendingConnection?.deviceId === device._id;
 
   // Looked up by port *name* — the only thing a real DeviceConnection
   // references (see DeviceConnection in @/types), not by element id.
@@ -67,18 +58,12 @@ export default function DevicePortsPanel({
         </div>
       </div>
 
-      {isPendingHere && (
-        <p className="rounded-sm border border-blue-500/30 bg-blue-500/10 px-2 py-1 text-[10px] text-blue-400">
-          Connecting from {pendingConnection!.portName} — click a port on another device to finish, or click it again to cancel.
-        </p>
-      )}
-
       <div className="overflow-x-auto rounded-sm border border-[#3f3f46]">
         <DeviceFaceGrid
           side={panelSide}
           subRows={subRows}
           elements={elements}
-          selectedId={isPendingHere ? pendingConnection!.elementId : null}
+          selectedId={null}
           onSelect={(id) => {
             if (readOnly) return;
             const el = elements.find((e) => e.id === id);

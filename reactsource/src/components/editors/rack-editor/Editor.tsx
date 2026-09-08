@@ -19,7 +19,8 @@ import { computePortNumber } from '../rack-device-editor/layout-utils';
 import RackGrid, { ROW_PX, type HoverRange } from './RackGrid';
 import DevicePalette from './DevicePalette';
 import AddDeviceModal from './AddDeviceModal';
-import DevicePortsPanel, { type PendingConnection } from './DevicePortsPanel';
+import DevicePortsPanel from './DevicePortsPanel';
+import ConnectPortDialog from './ConnectPortDialog';
 import { getDeviceVisual } from './device-icon';
 
 /** A placed device's `elements` is its own frozen snapshot, never a live
@@ -143,10 +144,11 @@ export default function RackEditor({
   const [dropError, setDropError] = useState<string | null>(null);
   const [pendingPlacement, setPendingPlacement] = useState<{ device: any; targetStart: number } | null>(null);
   const [inserting, setInserting] = useState(false);
-  // First-clicked port of an in-progress cable — cleared once the second
-  // click (on a *different* device) creates the connection, or by clicking
-  // the same port again to cancel.
-  const [pendingConnection, setPendingConnection] = useState<PendingConnection | null>(null);
+  // The port a Connect Port dialog is currently open for — real editor's
+  // own connect flow (verified against a screen recording): clicking a
+  // port opens a "Connect Port: <Device>/<Port>" dialog with a searchable
+  // device list, not a click-elsewhere-on-canvas interaction.
+  const [connectingFrom, setConnectingFrom] = useState<{ device: any; element: FaceElement } | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
@@ -186,21 +188,17 @@ export default function RackEditor({
     invalidateSubDevices();
   };
 
-  // A port click either starts a pending cable (nothing picked yet), cancels
-  // one (clicking the exact same port again), re-picks the start on the
-  // same device, or — clicking a port on a *different* device — finishes it
-  // by creating the connection.
-  const handlePortClick = async (device: any, element: FaceElement) => {
-    const portName = computePortNumber(element, device.elements || []);
+  // A port click opens the Connect Port dialog for it — the actual
+  // connection is only created once a target port is picked inside that
+  // dialog, in handleConnectConfirm below.
+  const handlePortClick = (device: any, element: FaceElement) => {
+    setConnectingFrom({ device, element });
+  };
 
-    if (!pendingConnection) {
-      setPendingConnection({ deviceId: device._id, deviceName: device.name, elementId: element.id, portName });
-      return;
-    }
-    if (pendingConnection.deviceId === device._id) {
-      setPendingConnection(pendingConnection.elementId === element.id ? null : { deviceId: device._id, deviceName: device.name, elementId: element.id, portName });
-      return;
-    }
+  const handleConnectConfirm = async (targetDevice: any, targetElement: FaceElement) => {
+    if (!connectingFrom) return;
+    const { device: sourceDevice, element: sourceElement } = connectingFrom;
+    setConnectingFrom(null);
     if (!onCreateDeviceConnections) {
       setConnectError('Connecting isn’t wired up here yet.');
       return;
@@ -209,19 +207,17 @@ export default function RackEditor({
       await onCreateDeviceConnections([
         {
           locationId: rack?.locationId,
-          device1Id: pendingConnection.deviceId,
-          port1Name: pendingConnection.portName,
-          device2Id: device._id,
-          port2Name: portName,
+          device1Id: sourceDevice._id,
+          port1Name: computePortNumber(sourceElement, sourceDevice.elements || []),
+          device2Id: targetDevice._id,
+          port2Name: computePortNumber(targetElement, targetDevice.elements || []),
           // Inferred format (side1-side2) — not directly observed.
-          direction: `${subDevices.find((d) => d._id === pendingConnection.deviceId)?.elements?.find((e: FaceElement) => e.id === pendingConnection.elementId)?.side || 'front'}-${element.side}`,
+          direction: `${sourceElement.side}-${targetElement.side}`,
           connectionType: 'user'
         }
       ]);
     } catch {
       setConnectError('Could not create that connection.');
-    } finally {
-      setPendingConnection(null);
     }
   };
 
@@ -310,6 +306,15 @@ export default function RackEditor({
   const visibleSubDevices = subDevices.filter((d: any) => (d.side || 'front') === side);
   const selectedDevice = subDevices.find((d: any) => d._id === selectedDeviceId);
 
+  // How many ports each device already has cabled — shown as a hint in the
+  // Connect Port dialog's device list (the real dialog shows an existing
+  // cable's short code instead, which we have no equivalent id for).
+  const connectedCountByDeviceId = new Map<string, number>();
+  for (const c of deviceConnections) {
+    connectedCountByDeviceId.set(c.device1Id, (connectedCountByDeviceId.get(c.device1Id) || 0) + 1);
+    connectedCountByDeviceId.set(c.device2Id, (connectedCountByDeviceId.get(c.device2Id) || 0) + 1);
+  }
+
   return (
     <DndContext
       sensors={sensors}
@@ -355,11 +360,6 @@ export default function RackEditor({
 
           {dropError && <p className="text-xs text-red-400">{dropError}</p>}
           {connectError && <p className="text-xs text-red-400">{connectError}</p>}
-          {pendingConnection && !readOnly && (
-            <p className="text-xs text-blue-400">
-              Connecting from {pendingConnection.deviceName} {pendingConnection.portName} — select a port on another device.
-            </p>
-          )}
 
           {isLoading ? (
             <p className="text-xs text-[#a1a1aa]">Loading…</p>
@@ -393,7 +393,6 @@ export default function RackEditor({
             readOnly={readOnly}
             customRackDevices={customRackDevices}
             deviceConnections={deviceConnections}
-            pendingConnection={pendingConnection}
             onPortClick={handlePortClick}
             onRackUpdate={onRackUpdate}
             onDeleteRack={onDeleteRack}
@@ -403,6 +402,17 @@ export default function RackEditor({
           />
         )}
       </div>
+
+      <ConnectPortDialog
+        open={!!connectingFrom}
+        sourceDeviceName={connectingFrom?.device.name || ''}
+        sourcePortName={connectingFrom ? computePortNumber(connectingFrom.element, connectingFrom.device.elements || []) : ''}
+        targetDevices={subDevices.filter((d) => d._id !== connectingFrom?.device._id)}
+        connectedCountByDeviceId={connectedCountByDeviceId}
+        viewSide={side}
+        onConnect={handleConnectConfirm}
+        onClose={() => setConnectingFrom(null)}
+      />
 
       <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.2, 0, 0, 1)' }}>
         {activeDrag && <DragGhost drag={activeDrag} />}
@@ -440,7 +450,6 @@ function RackSidePanel({
   readOnly,
   customRackDevices,
   deviceConnections,
-  pendingConnection,
   onPortClick,
   onRackUpdate,
   onDeleteRack,
@@ -453,7 +462,6 @@ function RackSidePanel({
   readOnly?: boolean;
   customRackDevices: any[];
   deviceConnections: DeviceConnection[];
-  pendingConnection: PendingConnection | null;
   onPortClick: (device: any, element: FaceElement) => void;
   onRackUpdate?: (data: any) => Promise<boolean> | void;
   onDeleteRack?: () => Promise<boolean> | void;
@@ -469,7 +477,6 @@ function RackSidePanel({
         readOnly={readOnly}
         customRackDevices={customRackDevices}
         deviceConnections={deviceConnections}
-        pendingConnection={pendingConnection}
         onPortClick={onPortClick}
         onUpdate={onDeviceUpdate}
         onDelete={() => onDeleteDevice(selectedDevice._id)}
@@ -539,7 +546,6 @@ function DeviceProperties({
   readOnly,
   customRackDevices,
   deviceConnections,
-  pendingConnection,
   onPortClick,
   onUpdate,
   onDelete,
@@ -549,7 +555,6 @@ function DeviceProperties({
   readOnly?: boolean;
   customRackDevices: any[];
   deviceConnections: DeviceConnection[];
-  pendingConnection: PendingConnection | null;
   onPortClick: (device: any, element: FaceElement) => void;
   onUpdate?: (id: string, data: any) => Promise<boolean>;
   onDelete: () => void;
@@ -652,7 +657,6 @@ function DeviceProperties({
       <DevicePortsPanel
         device={device}
         deviceConnections={deviceConnections}
-        pendingConnection={pendingConnection}
         onPortClick={(el) => onPortClick(device, el)}
         readOnly={readOnly}
       />
