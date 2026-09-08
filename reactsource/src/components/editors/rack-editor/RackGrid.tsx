@@ -7,27 +7,33 @@ import DeviceBlock from './DeviceBlock';
 import { findPortElement, portFraction } from '../rack-device-editor/layout-utils';
 import type { DeviceConnection, FaceElement, Side } from '@/types';
 
-export const ROW_PX = 24;
-const TOP_PX = 28;
-const BOTTOM_PX = 42;
-
-// Every horizontal number below is derived from ONE scale tied to the same
-// real-world unit system app.patchdocs.io's own rack SVG uses — confirmed
-// by inspecting a live rack's DOM directly: rack-outline -340..340, ear
-// -270..270, device content -250..250, all inside a ruler-inclusive
-// -400..340 (740-wide) span (see RackTop.tsx's own comment, which the
-// three SVG pieces' viewBoxes now match exactly). Deriving every inset
-// from that one span, instead of hand-tuning RACK_WIDTH/DEVICE_LEFT/
-// DEVICE_RIGHT independently, is the actual fix for devices rendering
-// wider than the rack body the SVGs painted and spilling past it — the
-// two systems could no longer silently drift apart.
+// Every number below is derived from ONE scale tied to the same real-world
+// unit system app.patchdocs.io's own rack SVG uses — confirmed by
+// inspecting a live rack's DOM directly: rack-outline -340..340, ear
+// -270..270, device content -250..250 (all inside a ruler-inclusive
+// -400..340, 740-wide, span — see RackTop.tsx's own comment, which the
+// three SVG pieces' viewBoxes now match exactly), and vertically a 1U row
+// is 50 tall, the top cap 58, the bottom cap 87 (RackTop.tsx/RackBottom.tsx
+// viewBox heights). Deriving every pixel size from that one shared SCALE,
+// instead of hand-tuning RACK_WIDTH/ROW_PX/DEVICE_LEFT/DEVICE_RIGHT
+// independently, is what actually fixed devices rendering wider than the
+// rack body the SVGs painted (the two systems could drift apart when
+// hand-tuned separately) — the same reasoning applies to ROW_PX: it used
+// to be a flat `24` chosen with no tie to RACK_WIDTH at all, giving each
+// row a ~24.7:1 width:height ratio against the real rack's own ~13.6:1
+// (680 wide : 50 tall) — every row read as squashed, wider than it should
+// be for its height.
 const RACK_REAL_SPAN = 740;
 // Chosen so DEVICE_RIGHT-DEVICE_LEFT works out to 400px — this session's
 // existing port layouts (portFraction, DeviceFaceGrid, ...) were all
 // tuned against a ~400px-wide device face; the scale is otherwise
-// arbitrary and could be any value without changing the proportions.
+// arbitrary and could be any value without changing the proportions (ROW_PX
+// etc. below all scale with it automatically).
 const SCALE = 0.8;
 const RACK_WIDTH = RACK_REAL_SPAN * SCALE; // 592 — the rack-outline's own right edge sits flush with this
+export const ROW_PX = 50 * SCALE; // 40 — one rack unit, real height 50
+const TOP_PX = 58 * SCALE; // 46.4 — RackTop's own real height
+const BOTTOM_PX = 87 * SCALE; // 69.6 — RackBottom's own real height
 const realX = (unitX: number) => (unitX + 400) * SCALE; // real rack-unit x (origin at the SVGs' own left edge, -400) → px within a RACK_WIDTH-wide row
 const OUTLINE_LEFT = realX(-340);
 const OUTLINE_RIGHT = realX(340); // === RACK_WIDTH, flush — no margin past it, unlike the old external gutter
@@ -168,7 +174,8 @@ export default function RackGrid({
   viewSide,
   deviceConnections = [],
   onDeleteConnection,
-  onCableDrop
+  onCableDrop,
+  zoom
 }: {
   heightU: number;
   devices: any[];
@@ -193,7 +200,16 @@ export default function RackGrid({
    *  from a source port straight to a target port on the rack elevation,
    *  no dialog. Undefined (readOnly) disables the drag entirely. */
   onCableDrop?: (sourceDevice: any, sourceElement: FaceElement, targetDevice: any, targetElement: FaceElement) => void;
+  /** CSS scale the whole elevation renders at (Editor.tsx's own zoom
+   *  controls / ctrl+scroll) — everything on this component's own side
+   *  (port ticks, cable paths, the drag preview) is computed in *pre-zoom*
+   *  local units, so pointer math converting a real screen position (e.g.
+   *  a port drag) back into those units has to divide out the same scale
+   *  the container is visually rendered at, or the drag preview reads the
+   *  cursor at the wrong spot whenever zoom isn't 1. */
+  zoom?: number;
 }) {
+  const zoomFactor = zoom || 1;
   const containerRef = useRef<HTMLDivElement>(null);
   // Live cable-drag state: the source port plus the pointer's current
   // rack-local position, so a dashed preview can track the cursor from
@@ -286,12 +302,16 @@ export default function RackGrid({
     if (onCableDrop === undefined) return;
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
-    setDragCable({ device, element, x: evt.clientX - rect.left, y: evt.clientY - rect.top });
+    // getBoundingClientRect already reflects the CSS scale zoom applies —
+    // dividing by zoomFactor converts back to this component's own
+    // pre-zoom local units, the same space every port tick and cable path
+    // is positioned in.
+    setDragCable({ device, element, x: (evt.clientX - rect.left) / zoomFactor, y: (evt.clientY - rect.top) / zoomFactor });
 
     const onMove = (e: PointerEvent) => {
       const r = containerRef.current?.getBoundingClientRect();
       if (!r) return;
-      setDragCable((prev) => (prev ? { ...prev, x: e.clientX - r.left, y: e.clientY - r.top } : prev));
+      setDragCable((prev) => (prev ? { ...prev, x: (e.clientX - r.left) / zoomFactor, y: (e.clientY - r.top) / zoomFactor } : prev));
     };
     const onUp = (e: PointerEvent) => {
       window.removeEventListener('pointermove', onMove);
@@ -328,10 +348,16 @@ export default function RackGrid({
   }
 
   return (
-    <div
-      ref={containerRef}
-      className="relative inline-block bg-[#0c0c0e] text-[#71717a] drop-shadow-xl"
-      style={{ width: RACK_WIDTH }}
+    // Outer box sized to the *post-zoom* footprint — a CSS transform alone
+    // changes what's painted, not the layout box a `transform`ed element
+    // still occupies, so without this the scrollable canvas around
+    // RackGrid would keep reserving room for the un-zoomed size (clipping
+    // the rack at zoom>1, leaving dead scroll space at zoom<1).
+    <div style={{ width: RACK_WIDTH * zoomFactor, height: rackHeight * zoomFactor }}>
+      <div
+        ref={containerRef}
+        className="relative inline-block bg-[#0c0c0e] text-[#71717a] drop-shadow-xl"
+        style={{ width: RACK_WIDTH, transform: `scale(${zoomFactor})`, transformOrigin: 'top left' }}
     >
       <div>
         <RackTop className="w-full" style={{ height: TOP_PX }} />
@@ -368,8 +394,9 @@ export default function RackGrid({
                   device={device}
                   top={indexFromTop * ROW_PX}
                   height={span * ROW_PX}
-                  left={DEVICE_LEFT}
-                  right={RACK_WIDTH - DEVICE_RIGHT}
+                  left={EAR_LEFT}
+                  right={RACK_WIDTH - EAR_RIGHT}
+                  contentInset={DEVICE_LEFT - EAR_LEFT}
                   selected={selectedDeviceId === device._id}
                   onSelect={() => onSelectDevice?.(device._id)}
                   readOnly={readOnly}
@@ -442,6 +469,7 @@ export default function RackGrid({
           })}
         </svg>
       )}
+      </div>
     </div>
   );
 }

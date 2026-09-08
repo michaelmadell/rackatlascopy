@@ -14,7 +14,7 @@ import {
 import { useAuthenticatedApi } from '@/hooks/useAuthenticatedApi';
 import { useResponsibleUserOptions } from '@/hooks/useResponsibleUserOptions';
 import { Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/patchdocs-ui';
-import { TbTrash, TbX } from 'react-icons/tb';
+import { TbTrash, TbX, TbZoomIn, TbZoomOut, TbZoomReset } from 'react-icons/tb';
 import type { FaceElement, DeviceConnection } from '@/types';
 import { STANDARD_DEVICE_TYPES } from '@/lib/device-constants';
 import { computePortNumber } from '../rack-device-editor/layout-utils';
@@ -167,12 +167,35 @@ export default function RackEditor({
   // device list, not a click-elsewhere-on-canvas interaction.
   const [connectingFrom, setConnectingFrom] = useState<{ device: any; element: FaceElement } | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
+  // Real recording shows ctrl+scroll zooming the rack elevation, plus a
+  // small +/-/reset control stack on the canvas's own left edge.
+  const [zoom, setZoom] = useState(1);
+  const canvasRef = useRef<HTMLDivElement>(null);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   useEffect(() => {
     setSelectedDeviceId(initialSelectedDeviceId || null);
   }, [initialSelectedDeviceId]);
+
+  // A plain onWheel prop can't reliably preventDefault — React (17+)
+  // registers the root wheel listener as passive for scroll performance,
+  // and calling preventDefault inside a passive listener is a silent
+  // no-op (or a console warning) depending on the browser. A real
+  // (non-passive) listener attached directly to the canvas node is the
+  // only way to actually stop the page from scrolling while ctrl+scroll
+  // zooms the rack instead.
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      setZoom((z) => Math.min(2, Math.max(0.25, z * (1 - e.deltaY * 0.001))));
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
 
   useEffect(() => {
     if (!dropError) return;
@@ -418,7 +441,17 @@ export default function RackEditor({
       <div className="h-full flex bg-[#0c0c0e] text-[#f4f4f5] overflow-hidden">
         {!readOnly && <DevicePalette />}
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-6 flex flex-col items-center gap-3">
+        {/* relative wrapper so the zoom controls below stay pinned to the
+         * canvas's own viewport instead of scrolling away with its
+         * content — the scrollable div itself can't host them directly,
+         * `position: sticky` inside a scroll container still moves with
+         * cross-axis scroll and this canvas only scrolls one axis anyway. */}
+        <div className="min-h-0 flex-1 relative">
+          {/* p-10/gap-8: a real recording shows real breathing room around
+           * the rack elevation itself — space above/below it inside the
+           * scrollable canvas, not the rack butted up against the toolbar
+           * and the edges of the view. */}
+          <div ref={canvasRef} className="h-full overflow-y-auto p-10 flex flex-col items-center gap-8">
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1 bg-[#18181b] border border-[#27272a] rounded-lg p-1">
               {(['front', 'back'] as const).map((s) => (
@@ -466,8 +499,37 @@ export default function RackEditor({
               deviceConnections={deviceConnections}
               onDeleteConnection={readOnly ? undefined : handleDeleteConnection}
               onCableDrop={readOnly ? undefined : handleCableDrop}
+              zoom={zoom}
             />
           )}
+          </div>
+
+          <div className="absolute left-4 top-4 flex flex-col gap-1 rounded-lg border border-[#27272a] bg-[#18181b] p-1">
+            <button
+              type="button"
+              onClick={() => setZoom((z) => Math.min(2, z * 1.2))}
+              className="rounded p-1.5 text-[#a1a1aa] hover:bg-[#27272a] hover:text-[#f4f4f5]"
+              title="Zoom in"
+            >
+              <TbZoomIn className="size-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setZoom((z) => Math.max(0.25, z / 1.2))}
+              className="rounded p-1.5 text-[#a1a1aa] hover:bg-[#27272a] hover:text-[#f4f4f5]"
+              title="Zoom out"
+            >
+              <TbZoomOut className="size-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setZoom(1)}
+              className="rounded p-1.5 text-[#a1a1aa] hover:bg-[#27272a] hover:text-[#f4f4f5]"
+              title="Reset zoom"
+            >
+              <TbZoomReset className="size-4" />
+            </button>
+          </div>
         </div>
 
         {connectionsListOpen ? (

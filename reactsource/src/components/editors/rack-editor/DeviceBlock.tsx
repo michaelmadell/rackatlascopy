@@ -18,6 +18,7 @@ export default function DeviceBlock({
   height,
   left,
   right,
+  contentInset,
   selected,
   onSelect,
   readOnly,
@@ -28,15 +29,26 @@ export default function DeviceBlock({
   device: any;
   top: number;
   height: number;
-  /** Left/right insets in px, from RackGrid's own DEVICE_LEFT/DEVICE_RIGHT
+  /** Left/right insets in px, from RackGrid's own EAR_LEFT/EAR_RIGHT
    *  (themselves derived from the real rack SVGs' viewBox — see
    *  RackGrid.tsx's own comment). Not a fixed Tailwind class any more: the
    *  two insets are asymmetric (the ruler strip only exists on the left),
    *  and a hardcoded `left-5 right-5` here previously drifted out of sync
    *  with what RackTop/RackMiddle/RackBottom actually painted, letting
-   *  devices render wider than the visible rack body. */
+   *  devices render wider than the visible rack body. This is the
+   *  device's *outer* box — real markup gives a device its own
+   *  `device-background` at the same ear-to-ear width as the empty-slot
+   *  placeholder's own outer box, not just the narrower inner content
+   *  area; an earlier pass aligned this to the inner area only, which
+   *  read as an unrealistic inset compared to the placeholder underneath
+   *  it. */
   left: number;
   right: number;
+  /** Px inset from `left`/`right` down to the actual port-content area
+   *  (RackGrid's own DEVICE_LEFT minus EAR_LEFT) — the gap the device's
+   *  own ears occupy on each side, same real 16px both this component's
+   *  own ear strip and the empty-slot placeholder's ear rects use. */
+  contentInset: number;
   selected?: boolean;
   onSelect?: () => void;
   readOnly?: boolean;
@@ -88,62 +100,69 @@ export default function DeviceBlock({
         selected ? 'border-blue-400' : 'border-[#3f3f46] hover:border-[#52525b]'
       } ${readOnly ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'}`}
     >
-      {/* Ports (or, lacking any, the device's own type as plain text) span
-       * the button's *full* box — RackGrid's own cable-anchor math
-       * (DEVICE_LEFT/DEVICE_RIGHT) assumes portFraction's 0..1 maps across
-       * this exact box, so nothing here may narrow that coordinate space
-       * (the name label below is a purely visual overlay, not a sibling
-       * that would shift it). */}
-      {ports.length > 0 ? (
-        <div className="pointer-events-none absolute inset-0">
-          {ports.map((p) => {
-            const def = getPortTypeDef(p.portType || '');
-            const PortIcon = def?.icon;
-            if (!PortIcon) return null;
-            const { x, y } = portFraction(p, subRows);
-            const connected = connectedPortNames?.has(computePortNumber(p, device.elements || []));
-            return (
-              <div
-                key={p.id}
-                data-port-hit="true"
-                data-device-id={device._id}
-                data-element-id={p.id}
-                onPointerDown={
-                  readOnly
-                    ? undefined
-                    : (e) => {
-                        // A port drag starts a cable, not a device move — stop it
-                        // reaching the block's own dnd-kit listeners (spread onto
-                        // the <button> below via `{...listeners}`).
-                        e.stopPropagation();
-                        onPortPointerDown?.(device, p, e);
-                      }
-                }
-                onClick={(e) => e.stopPropagation()}
-                className={`pointer-events-auto absolute flex items-center justify-center rounded-full ${
-                  readOnly ? '' : 'cursor-crosshair hover:bg-blue-500/30'
-                }`}
-                style={{ left: `${x * 100}%`, top: `${y * 100}%`, width: 10, height: 10, transform: 'translate(-50%, -50%)' }}
-              >
-                <PortIcon className={`size-1.5 ${connected ? 'text-blue-400' : 'text-[#f4f4f5]/50'}`} />
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        device.type && <span className="absolute left-6 top-1/2 -translate-y-1/2 text-[10px] text-[#71717a]">{device.type}</span>
-      )}
+      {/* Ports (or, lacking any, the device's own type as plain text) live
+       * in the content area only — inset from the button's own edges by
+       * `contentInset` on each side, the same real ear width the two
+       * strips below occupy. RackGrid's own cable-anchor math
+       * (DEVICE_LEFT/DEVICE_RIGHT) already assumes portFraction's 0..1
+       * maps across exactly this sub-box, not the button's full outer
+       * width, so the inset here has to match it exactly or a port tick
+       * and the cable drawn to it land in different places. */}
+      <div className="pointer-events-none absolute inset-y-0" style={{ left: contentInset, right: contentInset }}>
+        {ports.length > 0 ? (
+          <div className="absolute inset-0">
+            {ports.map((p) => {
+              const def = getPortTypeDef(p.portType || '');
+              const PortIcon = def?.icon;
+              if (!PortIcon) return null;
+              const { x, y } = portFraction(p, subRows);
+              const connected = connectedPortNames?.has(computePortNumber(p, device.elements || []));
+              return (
+                <div
+                  key={p.id}
+                  data-port-hit="true"
+                  data-device-id={device._id}
+                  data-element-id={p.id}
+                  onPointerDown={
+                    readOnly
+                      ? undefined
+                      : (e) => {
+                          // A port drag starts a cable, not a device move — stop it
+                          // reaching the block's own dnd-kit listeners (spread onto
+                          // the <button> below via `{...listeners}`).
+                          e.stopPropagation();
+                          onPortPointerDown?.(device, p, e);
+                        }
+                  }
+                  onClick={(e) => e.stopPropagation()}
+                  className={`pointer-events-auto absolute flex items-center justify-center rounded-full ${
+                    readOnly ? '' : 'cursor-crosshair hover:bg-blue-500/30'
+                  }`}
+                  style={{ left: `${x * 100}%`, top: `${y * 100}%`, width: 10, height: 10, transform: 'translate(-50%, -50%)' }}
+                >
+                  <PortIcon className={`size-1.5 ${connected ? 'text-blue-400' : 'text-[#f4f4f5]/50'}`} />
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          device.type && <span className="absolute left-1 top-1/2 -translate-y-1/2 text-[10px] text-[#71717a]">{device.type}</span>
+        )}
+      </div>
 
       {/* Real rack elevations give a device only its name, set vertically
-       * along the block's own left edge (same writing-mode convention
+       * along the block's own left ear (same writing-mode convention
        * DeviceFaceGrid/PortToolbar already use for their own side labels)
        * — no icon, no accent color, no unit badge (confirmed against a
        * screenshot sequence; this session's earlier icon/badge/type-label
-       * treatment didn't match). Painted after the ports layer, with an
-       * opaque background, so it sits on top of any port tick that would
-       * otherwise land underneath it — same tradeoff the icon/name/badge
-       * row this replaced already made. */}
-      <div className="pointer-events-none absolute inset-y-0 left-0 flex w-4 items-center justify-center border-r border-[rgba(255,255,255,0.08)] bg-[#111113]">
+       * treatment didn't match). A real device also has a second, blank
+       * ear on the right (just decorative rivets there, no text) — this
+       * one skips the rivets but keeps the matching strip so the content
+       * area between them reads as genuinely inset, not just cut off. */}
+      <div
+        className="pointer-events-none absolute inset-y-0 left-0 flex items-center justify-center border-r border-[rgba(255,255,255,0.08)] bg-[#111113]"
+        style={{ width: contentInset }}
+      >
         <span
           className="whitespace-nowrap text-[9px] font-bold uppercase tracking-widest text-[#d4d4d8]"
           style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
@@ -151,6 +170,10 @@ export default function DeviceBlock({
           {device.name}
         </span>
       </div>
+      <div
+        className="pointer-events-none absolute inset-y-0 right-0 border-l border-[rgba(255,255,255,0.08)] bg-[#111113]"
+        style={{ width: contentInset }}
+      />
     </button>
   );
 }
