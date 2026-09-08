@@ -10,22 +10,41 @@ import type { DeviceConnection, FaceElement, Side } from '@/types';
 export const ROW_PX = 24;
 const TOP_PX = 28;
 const BOTTOM_PX = 42;
-const RACK_WIDTH = 440;
-// Matches DeviceBlock's own `left-5 right-5` insets (Tailwind 5 = 20px) —
-// cable anchors need the exact same box a port tick renders inside, or a
-// cable visibly lands short of / past the tick it's supposed to touch.
-const DEVICE_LEFT = 20;
-const DEVICE_RIGHT = RACK_WIDTH - 20;
-// Dedicated lane strips on *both* sides of the rack proper — a real
-// screen recording showed cables routed left as often as right, not just
-// right (this session's earlier assumption). Both gutters are part of the
-// same visual footprint (the outer container below is sized to include
-// them), never spilling into the surrounding page the way an
-// overflow-visible jog off the device edge used to.
-const GUTTER = 72;
-const LANE_START_RIGHT = RACK_WIDTH + 12;
-const LANE_START_LEFT = -12;
-const LANE_GAP = 7;
+
+// Every horizontal number below is derived from ONE scale tied to the same
+// real-world unit system app.patchdocs.io's own rack SVG uses — confirmed
+// by inspecting a live rack's DOM directly: rack-outline -340..340, ear
+// -270..270, device content -250..250, all inside a ruler-inclusive
+// -400..340 (740-wide) span (see RackTop.tsx's own comment, which the
+// three SVG pieces' viewBoxes now match exactly). Deriving every inset
+// from that one span, instead of hand-tuning RACK_WIDTH/DEVICE_LEFT/
+// DEVICE_RIGHT independently, is the actual fix for devices rendering
+// wider than the rack body the SVGs painted and spilling past it — the
+// two systems could no longer silently drift apart.
+const RACK_REAL_SPAN = 740;
+// Chosen so DEVICE_RIGHT-DEVICE_LEFT works out to 400px — this session's
+// existing port layouts (portFraction, DeviceFaceGrid, ...) were all
+// tuned against a ~400px-wide device face; the scale is otherwise
+// arbitrary and could be any value without changing the proportions.
+const SCALE = 0.8;
+const RACK_WIDTH = RACK_REAL_SPAN * SCALE; // 592 — the rack-outline's own right edge sits flush with this
+const realX = (unitX: number) => (unitX + 400) * SCALE; // real rack-unit x (origin at the SVGs' own left edge, -400) → px within a RACK_WIDTH-wide row
+const OUTLINE_LEFT = realX(-340);
+const OUTLINE_RIGHT = realX(340); // === RACK_WIDTH, flush — no margin past it, unlike the old external gutter
+const EAR_LEFT = realX(-270);
+const EAR_RIGHT = realX(270);
+const DEVICE_LEFT = realX(-250);
+const DEVICE_RIGHT = realX(250);
+// Cables route *inside* the rack's own footprint, in the same ear-to-
+// outline zone app.patchdocs.io's own cables use (confirmed against real
+// cable path data: lane x's like -278/-286/-307/-315, all between the
+// ear's -270 and the outline's -340) — no more external gutter, which is
+// what actually put cables outside the rack's own visible body. Both
+// zones are the same width by construction (real-unit symmetry), so one
+// constant covers both sides.
+const LANE_ZONE = EAR_LEFT - OUTLINE_LEFT;
+const LANE_GAP = Math.min(7, LANE_ZONE / 6);
+const LANE_FIRST_OFFSET = Math.min(6, LANE_ZONE / 3);
 const CORNER_R = 5;
 
 /** Greedy interval-scheduling lane assignment across *two* sides: the
@@ -300,10 +319,10 @@ export default function RackGrid({
     const rect = blockRects.get(dragCable.device._id);
     if (rect) {
       const frac = portFraction(dragCable.element, (dragCable.device.heightU || 1) * 2);
-      const ax = GUTTER + DEVICE_LEFT + frac.x * (DEVICE_RIGHT - DEVICE_LEFT);
+      const ax = DEVICE_LEFT + frac.x * (DEVICE_RIGHT - DEVICE_LEFT);
       const ay = rect.top + frac.y * rect.height;
       const side: 'left' | 'right' = dragCable.x >= ax ? 'right' : 'left';
-      const laneX = GUTTER + (side === 'right' ? LANE_START_RIGHT : LANE_START_LEFT);
+      const laneX = side === 'right' ? EAR_RIGHT + LANE_FIRST_OFFSET : EAR_LEFT - LANE_FIRST_OFFSET;
       dragPreview = { ax, ay, bx: dragCable.x, by: dragCable.y, laneX, railAy: railY(rect, frac) };
     }
   }
@@ -312,9 +331,9 @@ export default function RackGrid({
     <div
       ref={containerRef}
       className="relative inline-block bg-[#0c0c0e] text-[#71717a] drop-shadow-xl"
-      style={{ width: RACK_WIDTH + GUTTER * 2 }}
+      style={{ width: RACK_WIDTH }}
     >
-      <div style={{ width: RACK_WIDTH, marginLeft: GUTTER }}>
+      <div>
         <RackTop className="w-full" style={{ height: TOP_PX }} />
 
         <div className="relative" style={{ height: heightU * ROW_PX }}>
@@ -348,6 +367,8 @@ export default function RackGrid({
                   device={device}
                   top={indexFromTop * ROW_PX}
                   height={span * ROW_PX}
+                  left={DEVICE_LEFT}
+                  right={RACK_WIDTH - DEVICE_RIGHT}
                   selected={selectedDeviceId === device._id}
                   onSelect={() => onSelectDevice?.(device._id)}
                   readOnly={readOnly}
@@ -363,16 +384,14 @@ export default function RackGrid({
         <RackBottom className="w-full" style={{ height: BOTTOM_PX }} />
       </div>
 
-      {/* Cables — confined to the rack's own footprint (RACK_WIDTH + a
-       * gutter on *each* side, set on the outer relative container above),
-       * never spilling into the surrounding page the way an
-       * overflow-visible jog off the device edge used to. anchorsFor()
-       * and the lane constants are all rack-local (0 = the rack proper's
-       * own left edge, which sits GUTTER px into this outer container —
-       * see its marginLeft above), so every x gets +GUTTER here at draw
-       * time rather than threading an offset through the anchor math. */}
+      {/* Cables — confined to the rack's own footprint (RACK_WIDTH exactly,
+       * same as the outer container above; anchorsFor() and the lane
+       * constants are all already rack-local, x=0 at this container's own
+       * left edge), never spilling past the visible rack body the way
+       * both an external gutter and the SVGs' own over-wide viewBoxes
+       * used to let them. */}
       {(visibleConnections.length > 0 || dragPreview) && (
-        <svg className="pointer-events-none absolute inset-0" width={RACK_WIDTH + GUTTER * 2} height={rackHeight}>
+        <svg className="pointer-events-none absolute inset-0" width={RACK_WIDTH} height={rackHeight}>
           {dragPreview && (
             <>
               <path
@@ -398,20 +417,17 @@ export default function RackGrid({
             // Each further lane moves *outward* — more positive on the
             // right, more negative on the left — so overlapping cables
             // fan away from the rack rather than stacking on one line.
+            // Clamped to the outline: more lanes than the zone can fit
+            // stack on the outermost one rather than spilling past the
+            // rack's own visible edge.
             const laneX =
-              GUTTER + (placement.side === 'right' ? LANE_START_RIGHT + placement.lane * LANE_GAP : LANE_START_LEFT - placement.lane * LANE_GAP);
+              placement.side === 'right'
+                ? Math.min(EAR_RIGHT + LANE_FIRST_OFFSET + placement.lane * LANE_GAP, OUTLINE_RIGHT)
+                : Math.max(EAR_LEFT - LANE_FIRST_OFFSET - placement.lane * LANE_GAP, OUTLINE_LEFT);
             return (
               <path
                 key={id}
-                d={elbowPath(
-                  GUTTER + anchors.ax,
-                  anchors.ay,
-                  GUTTER + anchors.bx,
-                  anchors.by,
-                  laneX,
-                  anchors.railAy,
-                  anchors.railBy
-                )}
+                d={elbowPath(anchors.ax, anchors.ay, anchors.bx, anchors.by, laneX, anchors.railAy, anchors.railBy)}
                 fill="none"
                 stroke="#3b82f6"
                 strokeWidth={1.5}

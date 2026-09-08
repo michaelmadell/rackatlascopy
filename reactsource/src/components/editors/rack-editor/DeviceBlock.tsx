@@ -16,6 +16,8 @@ export default function DeviceBlock({
   device,
   top,
   height,
+  left,
+  right,
   selected,
   onSelect,
   readOnly,
@@ -26,6 +28,15 @@ export default function DeviceBlock({
   device: any;
   top: number;
   height: number;
+  /** Left/right insets in px, from RackGrid's own DEVICE_LEFT/DEVICE_RIGHT
+   *  (themselves derived from the real rack SVGs' viewBox — see
+   *  RackGrid.tsx's own comment). Not a fixed Tailwind class any more: the
+   *  two insets are asymmetric (the ruler strip only exists on the left),
+   *  and a hardcoded `left-5 right-5` here previously drifted out of sync
+   *  with what RackTop/RackMiddle/RackBottom actually painted, letting
+   *  devices render wider than the visible rack body. */
+  left: number;
+  right: number;
   selected?: boolean;
   onSelect?: () => void;
   readOnly?: boolean;
@@ -52,12 +63,7 @@ export default function DeviceBlock({
   });
 
   if (isDragging) {
-    return (
-      <div
-        style={{ top, height }}
-        className="absolute left-5 right-5 rounded-sm border border-dashed border-blue-400/40 bg-blue-500/5"
-      />
-    );
+    return <div style={{ top, height, left, right }} className="absolute rounded-sm border border-dashed border-blue-400/40 bg-blue-500/5" />;
   }
 
   const ports: FaceElement[] = (device.elements || []).filter((e: FaceElement) => e.kind === 'port' && e.side === viewSide);
@@ -70,9 +76,16 @@ export default function DeviceBlock({
       onClick={onSelect}
       {...listeners}
       {...attributes}
-      style={{ top, height }}
-      className={`pointer-events-auto absolute left-5 right-5 overflow-hidden rounded-sm border bg-[#111113] text-left transition-colors duration-150 ${
-        selected ? 'border-blue-400 bg-blue-500/10' : 'border-[#3f3f46] hover:border-[#52525b]'
+      style={{ top, height, left, right }}
+      className={`pointer-events-auto absolute overflow-hidden rounded-sm border bg-[#111113] text-left transition-colors duration-150 ${
+        // A single `bg-*` utility only — layering a second, translucent one
+        // (this used to add `bg-blue-500/10` here) leaves it to Tailwind's
+        // compiled stylesheet order which `bg-*` wins, and the translucent
+        // one won: a selected device turned see-through, the rack SVG
+        // showing straight through it. Real screenshots show selection as
+        // border-only anyway (solid block, no fill change) — border color
+        // alone is both the fix and the more accurate match.
+        selected ? 'border-blue-400' : 'border-[#3f3f46] hover:border-[#52525b]'
       } ${readOnly ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'}`}
     >
       {/* Ports (or, lacking any, the device's own type as plain text) span

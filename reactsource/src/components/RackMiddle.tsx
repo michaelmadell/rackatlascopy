@@ -12,8 +12,11 @@ export const RackMiddle = ({ unitNumber, className = '', ...props }: RackMiddleP
   const yBottom = yTop + 50;
 
   return (
-    <svg 
-      viewBox={`-550 ${yTop} 1100 50`} 
+    <svg
+      // -400..340 (740 wide): tight to the ruler (-400..-340, drawn below)
+      // plus the rack body (-340..340) — see RackTop's own comment for why
+      // this had to shrink from the old `-550 ... 1100`.
+      viewBox={`-400 ${yTop} 740 50`}
       xmlns="http://www.w3.org/2000/svg" 
       aria-hidden="true" 
       className={className} 

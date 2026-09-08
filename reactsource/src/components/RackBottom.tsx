@@ -1,7 +1,9 @@
 import React from 'react';
 
 export const RackBottom = (props: React.SVGProps<SVGSVGElement>) => (
-  <svg viewBox="-550 1035.5 1100 87" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" {...props}>
+  // -400..340 (740 wide), matching RackTop/RackMiddle exactly — see
+  // RackTop's own comment for why.
+  <svg viewBox="-400 1035.5 740 87" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" {...props}>
     {/* Bounding Spacer */}
     <rect x="-340" y="1035.5" width="680" height="87" fill="none" stroke="none" strokeWidth="0"></rect>
 
