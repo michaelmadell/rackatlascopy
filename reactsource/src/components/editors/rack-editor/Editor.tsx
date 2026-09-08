@@ -14,7 +14,7 @@ import {
 import { useAuthenticatedApi } from '@/hooks/useAuthenticatedApi';
 import { useResponsibleUserOptions } from '@/hooks/useResponsibleUserOptions';
 import { Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/patchdocs-ui';
-import { TbTrash, TbX, TbZoomIn, TbZoomOut, TbZoomReset } from 'react-icons/tb';
+import { TbListDetails, TbTrash, TbX, TbZoomIn, TbZoomOut, TbZoomReset } from 'react-icons/tb';
 import type { FaceElement, DeviceConnection } from '@/types';
 import { STANDARD_DEVICE_TYPES } from '@/lib/device-constants';
 import { computePortNumber } from '../rack-device-editor/layout-utils';
@@ -516,6 +516,29 @@ export default function RackEditor({
               </button>
             ))}
           </div>
+
+          {/* Stopgap: the real app manages connections from its own bottom
+           * "DEVICES & CONNECTIONS" bar (not built here yet — a real
+           * recording shows 3 tabs: Devices/Connections/VLANs). Until that
+           * exists, this is the ONLY way to delete a connection in this
+           * clone at all — the on-canvas cable trace itself is
+           * deliberately not clickable (matches the real app), so without
+           * this button there's no way to remove a link. Reuses the
+           * already-built (just previously unreachable) ConnectionsListPanel
+           * and its own working Remove button — `setConnectionsListOpen`
+           * used to only ever fire bundled into "toggle all panels"
+           * (Ctrl+H), never on its own. */}
+          <button
+            type="button"
+            onClick={() => setConnectionsListOpen?.(!connectionsListOpen)}
+            className={`absolute right-4 top-4 flex items-center gap-1.5 rounded-lg border border-[#27272a] bg-[#18181b] px-2.5 py-1.5 text-xs font-medium ${
+              connectionsListOpen ? 'text-[#f4f4f5]' : 'text-[#a1a1aa] hover:text-[#f4f4f5]'
+            } hover:bg-[#27272a]`}
+            title="Manage connections"
+          >
+            <TbListDetails className="size-4" />
+            Connections
+          </button>
 
           <div className="absolute left-4 top-4 flex flex-col gap-1 rounded-lg border border-[#27272a] bg-[#18181b] p-1">
             <button

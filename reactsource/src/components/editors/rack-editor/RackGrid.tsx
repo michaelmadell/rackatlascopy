@@ -44,56 +44,97 @@ const DEVICE_RIGHT = realX(250);
 // Cables route *inside* the rack's own footprint, in the same ear-to-
 // outline zone app.patchdocs.io's own cables use — confirmed by pulling
 // real `<path class="cable">` `d` data directly out of a live rack's DOM
-// (not eyeballed): every cross-device cable's depth from the ear sits at
-// exactly +8/+45 real units, on EITHER side (-278..-315 on the left,
-// 278..315 on the right, mirrored), and — the important part — that
-// depth is IDENTICAL across every connection tested, including several
-// built specifically to overlap the same vertical span. A real recording
-// never fans overlapping cables out sideways into parallel lanes the way
-// this file used to (an earlier pass's own invention, not observed): they
-// just draw on top of each other in the shared trunk. TRUNK_DEPTH below
-// replaces the old per-connection lane math outright.
-const TRUNK_DEPTH = 45 * SCALE;
+// (not eyeballed), including independently reading back each device's own
+// box position (its group's `transform`) to know exactly which real-unit Y
+// each `d` coordinate corresponds to. That showed two things a first pass
+// at this missed:
+//  1. No lane fan-out, ever — every cross-device cable, including several
+//     built specifically to overlap the same vertical span, used the exact
+//     same depth from the ear on whichever side it routed to. This file's
+//     own earlier `assignLanes` (each additional overlapping cable pushed
+//     further out into its own lane) was invented, never observed.
+//  2. The approach into the ear isn't one rounded corner — it's a small
+//     3-corner staircase right at each end (see `elbowPath` below), which
+//     is what actually gives a real cable its "notched" look near a
+//     device's edge; a single corner reads as visibly too plain/direct.
+// JOG1/JOG2/GAP/TRUNK_OUTER are the four depths-from-the-ear a real path's
+// own `Q` control points land on, in order (8, 16, 37, 45) — 37 = JOG2+GAP,
+// not some other combination, confirmed against the same real `d` data.
+const JOG1 = 8 * SCALE;
+const JOG2 = 16 * SCALE;
+const GAP = 21 * SCALE;
+const TRUNK_OUTER = JOG2 + GAP + 8 * SCALE; // 45 * SCALE
 // A real recording's own corner radius, pulled from the same path data
 // (every `Q` command's control point sits exactly 8 real units from both
 // its neighbors) — was a flat, untied `5` before.
 const CORNER_R = 8 * SCALE;
 
-/** An orthogonal cable with rounded corners, routed straight-out to a
- *  shared vertical lane and straight back in — the same three-straights-
- *  two-rounded-corners shape the real app's own `<path>`s use (`Q`
- *  quadratic-bezier corners). Symmetric in `laneX` vs. `ax`/`bx` so the
- *  same function draws both left-routed (laneX below both anchors) and
- *  right-routed (laneX above both) cables.
+/** An orthogonal cable with rounded corners, routed out to a shared
+ *  vertical trunk on one side of the rack and back in — matching a real
+ *  recording's own `<path>` shape (`Q` quadratic-bezier corners) *and* its
+ *  own approach into the ear: not one corner into a flat lane, but a small
+ *  3-corner staircase at each end (out-8, further-16-then-a-21-unit-run,
+ *  then out to the trunk at 45) before the long straight run down the
+ *  trunk itself. `side` picks which ear (`'left'`|`'right'`) this cable
+ *  routes past — see `chooseSide`.
  *
  *  `railAy`/`railBy` (default: no hop, same as `ay`/`by`) let a cable run
  *  along a shared horizontal "bus" flush with a device's own top or bottom
- *  edge before turning into the lane — a real recording showed every
+ *  edge before turning into the trunk — a real recording showed every
  *  connected port drops a short straight stub to that rail rather than
- *  routing to the lane from its own exact height, so cables from ports at
+ *  routing to the trunk from its own exact height, so cables from ports at
  *  different rows on the same device edge still read as one shared run. */
 function elbowPath(
   ax: number,
   ay: number,
   bx: number,
   by: number,
-  laneX: number,
+  side: 'left' | 'right',
   railAy: number = ay,
   railBy: number = by
 ): string {
+  const dirX = side === 'left' ? -1 : 1;
+  const earX = side === 'left' ? EAR_LEFT : EAR_RIGHT;
   const stubA = railAy !== ay ? `M ${ax} ${ay} L ${ax} ${railAy} ` : `M ${ax} ${railAy} `;
   const tailB = railBy !== by ? ` L ${bx} ${by}` : '';
-  const hDirA = laneX >= ax ? 1 : -1;
-  const hDirB = laneX >= bx ? 1 : -1;
-  if (Math.abs(railBy - railAy) < 0.5) return `${stubA}L ${laneX} ${railAy} L ${bx} ${railBy}${tailB}`;
+
+  const xD1 = earX + dirX * JOG1;
+  const xD2 = earX + dirX * JOG2;
+  const xD3 = earX + dirX * (JOG2 + GAP);
+  const xD4 = earX + dirX * TRUNK_OUTER;
+
+  // Degenerate: both ends share a rail height (two devices happen to sit
+  // at the same real Y) — no vertical trunk run needed, just a single pass
+  // through the trunk depth at that one Y.
+  if (Math.abs(railBy - railAy) < 0.5) {
+    const hA = xD4 >= ax ? 1 : -1;
+    const hB = xD4 >= bx ? 1 : -1;
+    return `${stubA}L ${xD4 - CORNER_R * hA} ${railAy} L ${xD4 + CORNER_R * hB} ${railBy}${tailB}`;
+  }
+
+  const r = CORNER_R;
   const vDir = railBy > railAy ? 1 : -1;
-  const r = Math.min(CORNER_R, Math.abs(railBy - railAy) / 2);
+  const hA = xD1 >= ax ? 1 : -1;
+  const yA1 = railAy + r * vDir;
+  const yA2 = yA1 + r * vDir;
+  const yA3 = yA2 + r * vDir;
+  const hB = xD1 >= bx ? 1 : -1;
+  const yB1 = railBy - r * vDir;
+  const yB2 = yB1 - r * vDir;
+  const yB3 = yB2 - r * vDir;
+
   return [
     stubA.trim(),
-    `L ${laneX - r * hDirA} ${railAy}`,
-    `Q ${laneX} ${railAy} ${laneX} ${railAy + r * vDir}`,
-    `L ${laneX} ${railBy - r * vDir}`,
-    `Q ${laneX} ${railBy} ${laneX - r * hDirB} ${railBy}`,
+    `L ${xD1 - r * hA} ${railAy}`,
+    `Q ${xD1} ${railAy} ${xD1} ${yA1}`,
+    `Q ${xD1} ${yA2} ${xD2} ${yA2}`,
+    `L ${xD3} ${yA2}`,
+    `Q ${xD4} ${yA2} ${xD4} ${yA3}`,
+    `L ${xD4} ${yB3}`,
+    `Q ${xD4} ${yB2} ${xD3} ${yB2}`,
+    `L ${xD2} ${yB2}`,
+    `Q ${xD1} ${yB2} ${xD1} ${yB1}`,
+    `Q ${xD1} ${railBy} ${xD1 - r * hB} ${railBy}`,
     `L ${bx} ${railBy}${tailB}`
   ].join(' ');
 }
@@ -387,7 +428,7 @@ export default function RackGrid({
   // ax/ay/railAy anchor math anchorsFor() uses for a settled connection,
   // just with `bx`/`by` following the pointer instead of a resolved
   // target port.
-  let dragPreview: { ax: number; ay: number; bx: number; by: number; laneX: number; railAy: number } | null = null;
+  let dragPreview: { ax: number; ay: number; bx: number; by: number; side: 'left' | 'right'; railAy: number } | null = null;
   if (dragCable) {
     const rect = blockRects.get(dragCable.device._id);
     if (rect) {
@@ -400,8 +441,7 @@ export default function RackGrid({
       // local hop or a cross-device route — always previews the ear/trunk
       // shape, the more common case, same as elbowPath everywhere else.
       const side = chooseSide(ax, dragCable.x);
-      const laneX = side === 'right' ? EAR_RIGHT + TRUNK_DEPTH : EAR_LEFT - TRUNK_DEPTH;
-      dragPreview = { ax, ay, bx: dragCable.x, by: dragCable.y, laneX, railAy };
+      dragPreview = { ax, ay, bx: dragCable.x, by: dragCable.y, side, railAy };
     }
   }
 
@@ -481,7 +521,7 @@ export default function RackGrid({
           {dragPreview && (
             <>
               <path
-                d={elbowPath(dragPreview.ax, dragPreview.ay, dragPreview.bx, dragPreview.by, dragPreview.laneX, dragPreview.railAy, dragPreview.by)}
+                d={elbowPath(dragPreview.ax, dragPreview.ay, dragPreview.bx, dragPreview.by, dragPreview.side, dragPreview.railAy, dragPreview.by)}
                 fill="none"
                 stroke="#f97316"
                 strokeWidth={1.5}
@@ -493,10 +533,10 @@ export default function RackGrid({
           {visibleConnections.map(({ conn, anchors }) => {
             const id = conn._id || conn.id || '';
             // localHop (same device, same rail): a small loop that never
-            // leaves the row. Otherwise: the ear/trunk route, same fixed
-            // TRUNK_DEPTH on every cable — no fan-out (see TRUNK_DEPTH's
-            // own comment for why that's a deliberate match to a real
-            // recording, not a missing feature).
+            // leaves the row. Otherwise: the ear/trunk route — same fixed
+            // depths on every cable, no fan-out (see JOG1/JOG2/GAP/
+            // TRUNK_OUTER's own comment for why that's a deliberate match
+            // to a real recording, not a missing feature).
             const d = anchors.localHop
               ? localHopPath(anchors.ax, anchors.ay, anchors.bx, anchors.by, anchors.railAy)
               : elbowPath(
@@ -504,7 +544,7 @@ export default function RackGrid({
                   anchors.ay,
                   anchors.bx,
                   anchors.by,
-                  chooseSide(anchors.ax, anchors.bx) === 'right' ? EAR_RIGHT + TRUNK_DEPTH : EAR_LEFT - TRUNK_DEPTH,
+                  chooseSide(anchors.ax, anchors.bx),
                   anchors.railAy,
                   anchors.railBy
                 );
