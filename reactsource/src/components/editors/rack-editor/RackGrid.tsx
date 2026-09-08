@@ -77,21 +77,46 @@ function assignLanes(
  *  two-rounded-corners shape the real app's own `<path>`s use (`Q`
  *  quadratic-bezier corners). Symmetric in `laneX` vs. `ax`/`bx` so the
  *  same function draws both left-routed (laneX below both anchors) and
- *  right-routed (laneX above both) cables. */
-function elbowPath(ax: number, ay: number, bx: number, by: number, laneX: number): string {
+ *  right-routed (laneX above both) cables.
+ *
+ *  `railAy`/`railBy` (default: no hop, same as `ay`/`by`) let a cable run
+ *  along a shared horizontal "bus" flush with a device's own top or bottom
+ *  edge before turning into the lane — a real recording showed every
+ *  connected port drops a short straight stub to that rail rather than
+ *  routing to the lane from its own exact height, so cables from ports at
+ *  different rows on the same device edge still read as one shared run. */
+function elbowPath(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  laneX: number,
+  railAy: number = ay,
+  railBy: number = by
+): string {
+  const stubA = railAy !== ay ? `M ${ax} ${ay} L ${ax} ${railAy} ` : `M ${ax} ${railAy} `;
+  const tailB = railBy !== by ? ` L ${bx} ${by}` : '';
   const hDirA = laneX >= ax ? 1 : -1;
   const hDirB = laneX >= bx ? 1 : -1;
-  if (Math.abs(by - ay) < 0.5) return `M ${ax} ${ay} L ${laneX} ${ay} L ${bx} ${by}`;
-  const vDir = by > ay ? 1 : -1;
-  const r = Math.min(CORNER_R, Math.abs(by - ay) / 2);
+  if (Math.abs(railBy - railAy) < 0.5) return `${stubA}L ${laneX} ${railAy} L ${bx} ${railBy}${tailB}`;
+  const vDir = railBy > railAy ? 1 : -1;
+  const r = Math.min(CORNER_R, Math.abs(railBy - railAy) / 2);
   return [
-    `M ${ax} ${ay}`,
-    `L ${laneX - r * hDirA} ${ay}`,
-    `Q ${laneX} ${ay} ${laneX} ${ay + r * vDir}`,
-    `L ${laneX} ${by - r * vDir}`,
-    `Q ${laneX} ${by} ${laneX - r * hDirB} ${by}`,
-    `L ${bx} ${by}`
+    stubA.trim(),
+    `L ${laneX - r * hDirA} ${railAy}`,
+    `Q ${laneX} ${railAy} ${laneX} ${railAy + r * vDir}`,
+    `L ${laneX} ${railBy - r * vDir}`,
+    `Q ${laneX} ${railBy} ${laneX - r * hDirB} ${railBy}`,
+    `L ${bx} ${railBy}${tailB}`
   ].join(' ');
+}
+
+/** Which of a device's own top/bottom edges a port's cable hops to before
+ *  heading to the lane — the upper sub-row rail (`rect.top`) for a port in
+ *  the top half of the device's face, the lower rail (`rect.top +
+ *  rect.height`) otherwise. */
+function railY(rect: { top: number; height: number }, frac: { y: number }): number {
+  return frac.y < 0.5 ? rect.top : rect.top + rect.height;
 }
 
 export interface HoverRange {
@@ -183,7 +208,9 @@ export default function RackGrid({
    *  null unless both devices are on-screen *and* each actually has a port
    *  by that name (a stray connection pointing at a since-deleted or
    *  since-relinked port draws nothing, rather than guessing). */
-  function anchorsFor(conn: DeviceConnection): { ax: number; ay: number; bx: number; by: number } | null {
+  function anchorsFor(
+    conn: DeviceConnection
+  ): { ax: number; ay: number; bx: number; by: number; railAy: number; railBy: number } | null {
     const rectA = blockRects.get(conn.device1Id);
     const rectB = blockRects.get(conn.device2Id);
     const deviceA = devicesById.get(conn.device1Id);
@@ -198,7 +225,9 @@ export default function RackGrid({
       ax: DEVICE_LEFT + fracA.x * (DEVICE_RIGHT - DEVICE_LEFT),
       ay: rectA.top + fracA.y * rectA.height,
       bx: DEVICE_LEFT + fracB.x * (DEVICE_RIGHT - DEVICE_LEFT),
-      by: rectB.top + fracB.y * rectB.height
+      by: rectB.top + fracB.y * rectB.height,
+      railAy: railY(rectA, fracA),
+      railBy: railY(rectB, fracB)
     };
   }
 
@@ -266,7 +295,7 @@ export default function RackGrid({
   }
 
   // Live preview anchors — null until a drag is in flight.
-  let dragPreview: { ax: number; ay: number; bx: number; by: number; laneX: number } | null = null;
+  let dragPreview: { ax: number; ay: number; bx: number; by: number; laneX: number; railAy: number } | null = null;
   if (dragCable) {
     const rect = blockRects.get(dragCable.device._id);
     if (rect) {
@@ -275,7 +304,7 @@ export default function RackGrid({
       const ay = rect.top + frac.y * rect.height;
       const side: 'left' | 'right' = dragCable.x >= ax ? 'right' : 'left';
       const laneX = GUTTER + (side === 'right' ? LANE_START_RIGHT : LANE_START_LEFT);
-      dragPreview = { ax, ay, bx: dragCable.x, by: dragCable.y, laneX };
+      dragPreview = { ax, ay, bx: dragCable.x, by: dragCable.y, laneX, railAy: railY(rect, frac) };
     }
   }
 
@@ -347,7 +376,14 @@ export default function RackGrid({
           {dragPreview && (
             <>
               <path
-                d={elbowPath(dragPreview.ax, dragPreview.ay, dragPreview.bx, dragPreview.by, dragPreview.laneX)}
+                d={elbowPath(
+                  dragPreview.ax,
+                  dragPreview.ay,
+                  dragPreview.bx,
+                  dragPreview.by,
+                  dragPreview.laneX,
+                  dragPreview.railAy
+                )}
                 fill="none"
                 stroke="#3b82f6"
                 strokeWidth={1.5}
@@ -367,7 +403,15 @@ export default function RackGrid({
             return (
               <path
                 key={id}
-                d={elbowPath(GUTTER + anchors.ax, anchors.ay, GUTTER + anchors.bx, anchors.by, laneX)}
+                d={elbowPath(
+                  GUTTER + anchors.ax,
+                  anchors.ay,
+                  GUTTER + anchors.bx,
+                  anchors.by,
+                  laneX,
+                  anchors.railAy,
+                  anchors.railBy
+                )}
                 fill="none"
                 stroke="#3b82f6"
                 strokeWidth={1.5}
