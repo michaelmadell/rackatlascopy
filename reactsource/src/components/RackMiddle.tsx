@@ -115,7 +115,22 @@ export const RackMiddle = ({ unitNumber, slotIndex, className = '', ...props }: 
           strokeWidth="1"
         ></line>
 
-        {/* Slot Placeholder */}
+        {/* Slot Placeholder — colors are hardcoded dark, not the real
+         * `fill-background`/`fill-rack-planner-light-gray` tokens class
+         * names still name them after. Checked app.patchdocs.io's real
+         * dark mode directly this time (its rack elevation really is dark
+         * there — both tokens have a `.dark` override, confirmed via
+         * getComputedStyle: `fill-background` → oklch(18.22% 0 0),
+         * `rack-planner-light-gray` → oklch(35.76% ...) — an earlier pass
+         * checked only the light-mode `:root` definitions and wrongly
+         * concluded the rack was always white). This editor has no
+         * light/dark toggle of its own though — every other color in it
+         * (DeviceBlock, the sidebar panels, ...) is a fixed dark hex, so
+         * matching real dark mode here means reusing this same editor's
+         * own already-established dark palette (`#18181b` elevated
+         * surfaces, `#27272a` borders — both already used throughout
+         * DevicePortsPanel/the sidebar), not adding real theme-reactivity
+         * this component has no other trace of. */}
         <g
           className="rack-height-unit__placeholder rack-slot rack-slot-front"
           fill="none"
@@ -123,15 +138,15 @@ export const RackMiddle = ({ unitNumber, slotIndex, className = '', ...props }: 
           style={{ cursor: 'pointer' }}
         >
           <rect
-            className="rack-height-unit__placeholder_bg fill-rack-planner-light-gray"
+            className="rack-height-unit__placeholder_bg fill-[#27272a]"
             width="540"
             height="50"
             x="-270"
             y={yTop}
           ></rect>
-          <rect className="rack-height-unit__placeholder_inner fill-white" width="500" height="50" x="-250" y={yTop}></rect>
+          <rect className="rack-height-unit__placeholder_inner fill-[#18181b]" width="500" height="50" x="-250" y={yTop}></rect>
           <line
-            className="rack-height-unit__placeholder_border_top stroke-rack-planner-light-gray"
+            className="rack-height-unit__placeholder_border_top stroke-[#27272a]"
             x1="-250"
             y1={yTop + 0.5}
             x2="250"
@@ -140,7 +155,7 @@ export const RackMiddle = ({ unitNumber, slotIndex, className = '', ...props }: 
             strokeWidth="1"
           ></line>
           <line
-            className="rack-height-unit__placeholder_border_bottom stroke-rack-planner-light-gray"
+            className="rack-height-unit__placeholder_border_bottom stroke-[#27272a]"
             x1="-250"
             y1={yBottom - 0.5}
             x2="250"
@@ -151,27 +166,27 @@ export const RackMiddle = ({ unitNumber, slotIndex, className = '', ...props }: 
 
           {/* Left Ear */}
           <rect
-            className="rack-height-unit__placeholder_leftear_bg fill-rack-planner-light-gray"
+            className="rack-height-unit__placeholder_leftear_bg fill-[#27272a]"
             width="20"
             height="50"
             x="-270"
             y={yTop}
           ></rect>
-          <rect className="rack-height-unit__placeholder_leftear_square1 fill-white" width="6" height="6" x="-266" y={yTop + 4}></rect>
-          <rect className="rack-height-unit__placeholder_leftear_square2 fill-white" width="6" height="6" x="-266" y={yTop + 22}></rect>
-          <rect className="rack-height-unit__placeholder_leftear_square3 fill-white" width="6" height="6" x="-266" y={yTop + 40}></rect>
+          <rect className="rack-height-unit__placeholder_leftear_square1 fill-[#18181b]" width="6" height="6" x="-266" y={yTop + 4}></rect>
+          <rect className="rack-height-unit__placeholder_leftear_square2 fill-[#18181b]" width="6" height="6" x="-266" y={yTop + 22}></rect>
+          <rect className="rack-height-unit__placeholder_leftear_square3 fill-[#18181b]" width="6" height="6" x="-266" y={yTop + 40}></rect>
 
           {/* Right Ear */}
           <rect
-            className="rack-height-unit__placeholder_rightear_bg fill-rack-planner-light-gray"
+            className="rack-height-unit__placeholder_rightear_bg fill-[#27272a]"
             width="20"
             height="50"
             x="250"
             y={yTop}
           ></rect>
-          <rect className="rack-height-unit__placeholder_rightear_square1 fill-white" width="6" height="6" x="260" y={yTop + 4}></rect>
-          <rect className="rack-height-unit__placeholder_rightear_square2 fill-white" width="6" height="6" x="260" y={yTop + 22}></rect>
-          <rect className="rack-height-unit__placeholder_rightear_square3 fill-white" width="6" height="6" x="260" y={yTop + 40}></rect>
+          <rect className="rack-height-unit__placeholder_rightear_square1 fill-[#18181b]" width="6" height="6" x="260" y={yTop + 4}></rect>
+          <rect className="rack-height-unit__placeholder_rightear_square2 fill-[#18181b]" width="6" height="6" x="260" y={yTop + 22}></rect>
+          <rect className="rack-height-unit__placeholder_rightear_square3 fill-[#18181b]" width="6" height="6" x="260" y={yTop + 40}></rect>
 
           {/* Plus Icon */}
           <g className="rack-height-unit__placeholder_plus_icon" transform={`translate(0, ${yTop + 13})`}>
