@@ -203,15 +203,17 @@ export default function RackEditor({
 
   // A port click opens the Connect Port dialog for it — the actual
   // connection is only created once a target port is picked inside that
-  // dialog, in handleConnectConfirm below.
+  // dialog, in handleConnectConfirm below. Kept alongside the rack
+  // elevation's own direct port-to-port drag (handleCableDrop) as a second
+  // entry point into the same createConnection call — a real recording
+  // shows the drag as the primary mechanic, but the side-panel's searchable
+  // device list is still the easier path when the target device is off
+  // whatever's currently on-screen.
   const handlePortClick = (device: any, element: FaceElement) => {
     setConnectingFrom({ device, element });
   };
 
-  const handleConnectConfirm = async (targetDevice: any, targetElement: FaceElement) => {
-    if (!connectingFrom) return;
-    const { device: sourceDevice, element: sourceElement } = connectingFrom;
-    setConnectingFrom(null);
+  const createConnection = async (sourceDevice: any, sourceElement: FaceElement, targetDevice: any, targetElement: FaceElement) => {
     if (!onCreateDeviceConnections) {
       setConnectError('Connecting isn’t wired up here yet.');
       return;
@@ -233,6 +235,20 @@ export default function RackEditor({
       setConnectError('Could not create that connection.');
     }
   };
+
+  const handleConnectConfirm = async (targetDevice: any, targetElement: FaceElement) => {
+    if (!connectingFrom) return;
+    const { device: sourceDevice, element: sourceElement } = connectingFrom;
+    setConnectingFrom(null);
+    await createConnection(sourceDevice, sourceElement, targetDevice, targetElement);
+  };
+
+  // Dropping a dragged port directly onto another port on the rack
+  // elevation — the real app's own primary connect gesture (a screenshot
+  // sequence showed an orange source marker, a dashed preview line
+  // following the cursor, and an instant "Saved" on drop — no dialog).
+  const handleCableDrop = (sourceDevice: any, sourceElement: FaceElement, targetDevice: any, targetElement: FaceElement) =>
+    createConnection(sourceDevice, sourceElement, targetDevice, targetElement);
 
   const handleDeleteConnection = async (connectionId: string) => {
     if (!onDeleteDeviceConnections) return;
@@ -420,6 +436,7 @@ export default function RackEditor({
               viewSide={side}
               deviceConnections={deviceConnections}
               onDeleteConnection={readOnly ? undefined : handleDeleteConnection}
+              onCableDrop={readOnly ? undefined : handleCableDrop}
             />
           )}
         </div>

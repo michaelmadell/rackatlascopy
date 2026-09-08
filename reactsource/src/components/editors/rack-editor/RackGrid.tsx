@@ -1,10 +1,11 @@
+import { useRef, useState } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { RackTop } from '@/components/RackTop';
 import { RackMiddle } from '@/components/RackMiddle';
 import { RackBottom } from '@/components/RackBottom';
 import DeviceBlock from './DeviceBlock';
 import { findPortElement, portFraction } from '../rack-device-editor/layout-utils';
-import type { DeviceConnection, Side } from '@/types';
+import type { DeviceConnection, FaceElement, Side } from '@/types';
 
 export const ROW_PX = 24;
 const TOP_PX = 28;
@@ -122,7 +123,8 @@ export default function RackGrid({
   hoverRange,
   viewSide,
   deviceConnections = [],
-  onDeleteConnection
+  onDeleteConnection,
+  onCableDrop
 }: {
   heightU: number;
   devices: any[];
@@ -142,7 +144,18 @@ export default function RackGrid({
    *  here (see the Connections list panel for the full set). */
   deviceConnections?: DeviceConnection[];
   onDeleteConnection?: (connectionId: string) => void;
+  /** Fires once a cable drag (see onPortPointerDown below) is dropped on a
+   *  *different* device's port — a real recording's own connect flow: drag
+   *  from a source port straight to a target port on the rack elevation,
+   *  no dialog. Undefined (readOnly) disables the drag entirely. */
+  onCableDrop?: (sourceDevice: any, sourceElement: FaceElement, targetDevice: any, targetElement: FaceElement) => void;
 }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  // Live cable-drag state: the source port plus the pointer's current
+  // rack-local position, so a dashed preview can track the cursor from
+  // source port to whatever's under it. Cleared on drop or cancel.
+  const [dragCable, setDragCable] = useState<{ device: any; element: FaceElement; x: number; y: number } | null>(null);
+
   const units = Array.from({ length: heightU }, (_, i) => heightU - i);
 
   const occupiedBy = new Map<number, string>();
@@ -203,8 +216,75 @@ export default function RackGrid({
 
   const rackHeight = TOP_PX + heightU * ROW_PX + BOTTOM_PX;
 
+  // Port names already carrying a cable, per device — DeviceBlock swaps in
+  // a filled plug glyph for these instead of the bare port-type outline.
+  const connectedNamesByDevice = new Map<string, Set<string>>();
+  for (const c of deviceConnections) {
+    if (!connectedNamesByDevice.has(c.device1Id)) connectedNamesByDevice.set(c.device1Id, new Set());
+    connectedNamesByDevice.get(c.device1Id)!.add(c.port1Name);
+    if (!connectedNamesByDevice.has(c.device2Id)) connectedNamesByDevice.set(c.device2Id, new Set());
+    connectedNamesByDevice.get(c.device2Id)!.add(c.port2Name);
+  }
+
+  /** Native pointer-event drag, same family as the resize handles use
+   *  elsewhere in this editor — dnd-kit's own drag machinery is already
+   *  claimed by device repositioning, so a cable drag can't reuse it
+   *  without the two fighting over the same pointerdown. Tracks the
+   *  pointer with window-level listeners (the source port element itself
+   *  isn't under the cursor for most of the drag) and resolves the drop
+   *  target via `elementFromPoint` + the `data-port-hit` marker every port
+   *  tick carries. */
+  function startPortDrag(device: any, element: FaceElement, evt: { clientX: number; clientY: number }) {
+    if (onCableDrop === undefined) return;
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setDragCable({ device, element, x: evt.clientX - rect.left, y: evt.clientY - rect.top });
+
+    const onMove = (e: PointerEvent) => {
+      const r = containerRef.current?.getBoundingClientRect();
+      if (!r) return;
+      setDragCable((prev) => (prev ? { ...prev, x: e.clientX - r.left, y: e.clientY - r.top } : prev));
+    };
+    const onUp = (e: PointerEvent) => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      setDragCable(null);
+      const hit = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest(
+        '[data-port-hit]'
+      ) as HTMLElement | null;
+      if (!hit) return;
+      const targetDevice = devices.find((d) => d._id === hit.dataset.deviceId);
+      const targetElement = targetDevice?.elements?.find((el: FaceElement) => el.id === hit.dataset.elementId);
+      if (!targetDevice || !targetElement) return;
+      // A cable always runs between two different devices in every example
+      // seen — self-loops are rejected rather than guessed at.
+      if (targetDevice._id === device._id) return;
+      onCableDrop?.(device, element, targetDevice, targetElement);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }
+
+  // Live preview anchors — null until a drag is in flight.
+  let dragPreview: { ax: number; ay: number; bx: number; by: number; laneX: number } | null = null;
+  if (dragCable) {
+    const rect = blockRects.get(dragCable.device._id);
+    if (rect) {
+      const frac = portFraction(dragCable.element, (dragCable.device.heightU || 1) * 2);
+      const ax = GUTTER + DEVICE_LEFT + frac.x * (DEVICE_RIGHT - DEVICE_LEFT);
+      const ay = rect.top + frac.y * rect.height;
+      const side: 'left' | 'right' = dragCable.x >= ax ? 'right' : 'left';
+      const laneX = GUTTER + (side === 'right' ? LANE_START_RIGHT : LANE_START_LEFT);
+      dragPreview = { ax, ay, bx: dragCable.x, by: dragCable.y, laneX };
+    }
+  }
+
   return (
-    <div className="relative inline-block bg-[#0c0c0e] text-[#71717a] drop-shadow-xl" style={{ width: RACK_WIDTH + GUTTER * 2 }}>
+    <div
+      ref={containerRef}
+      className="relative inline-block bg-[#0c0c0e] text-[#71717a] drop-shadow-xl"
+      style={{ width: RACK_WIDTH + GUTTER * 2 }}
+    >
       <div style={{ width: RACK_WIDTH, marginLeft: GUTTER }}>
         <RackTop className="w-full" style={{ height: TOP_PX }} />
 
@@ -243,6 +323,8 @@ export default function RackGrid({
                   onSelect={() => onSelectDevice?.(device._id)}
                   readOnly={readOnly}
                   viewSide={viewSide}
+                  connectedPortNames={connectedNamesByDevice.get(device._id)}
+                  onPortPointerDown={onCableDrop ? startPortDrag : undefined}
                 />
               );
             })}
@@ -260,8 +342,20 @@ export default function RackGrid({
        * own left edge, which sits GUTTER px into this outer container —
        * see its marginLeft above), so every x gets +GUTTER here at draw
        * time rather than threading an offset through the anchor math. */}
-      {visibleConnections.length > 0 && (
+      {(visibleConnections.length > 0 || dragPreview) && (
         <svg className="pointer-events-none absolute inset-0" width={RACK_WIDTH + GUTTER * 2} height={rackHeight}>
+          {dragPreview && (
+            <>
+              <path
+                d={elbowPath(dragPreview.ax, dragPreview.ay, dragPreview.bx, dragPreview.by, dragPreview.laneX)}
+                fill="none"
+                stroke="#3b82f6"
+                strokeWidth={1.5}
+                strokeDasharray="4 3"
+              />
+              <circle cx={dragPreview.ax} cy={dragPreview.ay} r={4} fill="#f97316" />
+            </>
+          )}
           {visibleConnections.map(({ conn, anchors }) => {
             const id = conn._id || conn.id || '';
             const placement = laneOf.get(id) || { side: 'right' as const, lane: 0 };

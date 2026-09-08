@@ -1,7 +1,8 @@
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { getDeviceVisual } from './device-icon';
 import { getPortTypeDef } from '../rack-device-editor/port-types';
-import { portFraction } from '../rack-device-editor/layout-utils';
+import { portFraction, computePortNumber } from '../rack-device-editor/layout-utils';
 import type { FaceElement, Side } from '@/types';
 
 /**
@@ -19,7 +20,9 @@ export default function DeviceBlock({
   selected,
   onSelect,
   readOnly,
-  viewSide
+  viewSide,
+  connectedPortNames,
+  onPortPointerDown
 }: {
   device: any;
   top: number;
@@ -33,6 +36,15 @@ export default function DeviceBlock({
    *  "which side of the device am I looking at" filter for that, distinct
    *  from `device.side` (which side of the *rack* it's mounted facing). */
   viewSide: Side;
+  /** Port *names* (computePortNumber form) already carrying a cable — drawn
+   *  with a filled plug glyph instead of the bare port-type outline, same
+   *  as a real recording's connected-port state. */
+  connectedPortNames?: Set<string>;
+  /** Starts a cable drag from this exact port — a real recording shows the
+   *  connection flow is a direct port-to-port drag on the rack elevation
+   *  itself (dashed preview line, drop on the target port), not only the
+   *  side-panel dialog. Only wired up when the rack isn't read-only. */
+  onPortPointerDown?: (device: any, element: FaceElement, evt: ReactPointerEvent) => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `device-${device._id}`,
@@ -78,14 +90,32 @@ export default function DeviceBlock({
             const PortIcon = def?.icon;
             if (!PortIcon) return null;
             const { x, y } = portFraction(p, subRows);
+            const connected = connectedPortNames?.has(computePortNumber(p, device.elements || []));
             return (
-              <span
+              <div
                 key={p.id}
-                className="absolute text-[#f4f4f5]/50"
-                style={{ left: `${x * 100}%`, top: `${y * 100}%`, transform: 'translate(-50%, -50%)' }}
+                data-port-hit="true"
+                data-device-id={device._id}
+                data-element-id={p.id}
+                onPointerDown={
+                  readOnly
+                    ? undefined
+                    : (e) => {
+                        // A port drag starts a cable, not a device move — stop it
+                        // reaching the block's own dnd-kit listeners (spread onto
+                        // the <button> below via `{...listeners}`).
+                        e.stopPropagation();
+                        onPortPointerDown?.(device, p, e);
+                      }
+                }
+                onClick={(e) => e.stopPropagation()}
+                className={`pointer-events-auto absolute flex items-center justify-center rounded-full ${
+                  readOnly ? '' : 'cursor-crosshair hover:bg-blue-500/30'
+                }`}
+                style={{ left: `${x * 100}%`, top: `${y * 100}%`, width: 10, height: 10, transform: 'translate(-50%, -50%)' }}
               >
-                <PortIcon className="size-1.5" />
-              </span>
+                <PortIcon className={`size-1.5 ${connected ? 'text-blue-400' : 'text-[#f4f4f5]/50'}`} />
+              </div>
             );
           })}
         </div>
