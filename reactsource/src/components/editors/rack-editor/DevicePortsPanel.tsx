@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { Input, Label, Button } from '@/patchdocs-ui';
 import DeviceFaceGrid from '../rack-device-editor/DeviceFaceGrid';
 import { computePortNumber } from '../rack-device-editor/layout-utils';
-import { SUB_ROWS_PER_U } from '../rack-device-editor/port-types';
+import { SUB_ROWS_PER_U, getPortTypeDef } from '../rack-device-editor/port-types';
+import { TbChevronDown, TbChevronUp, TbPlugConnected } from 'react-icons/tb';
 import type { FaceElement, Side, DeviceConnection } from '@/types';
 
 /** Read-only render of a placed device's own port face (reuses
@@ -28,6 +29,7 @@ export default function DevicePortsPanel({
 }) {
   const [panelSide, setPanelSide] = useState<Side>('front');
   const [selectedPortId, setSelectedPortId] = useState<string | null>(null);
+  const [wiredPortsOpen, setWiredPortsOpen] = useState(true);
 
   const elements: FaceElement[] = device.elements || [];
 
@@ -135,6 +137,111 @@ export default function DevicePortsPanel({
 
       {connectedPortNames.size > 0 && (
         <p className="text-[10px] text-[#52525b]">Connected: {[...connectedPortNames].join(', ')}</p>
+      )}
+
+      <WiredPortsList
+        elements={elements}
+        selectedPortId={selectedPortId}
+        connectedPortNames={connectedPortNames}
+        open={wiredPortsOpen}
+        onToggleOpen={() => setWiredPortsOpen((o) => !o)}
+        onSelect={(el) => {
+          setSelectedPortId(el.id);
+          setPanelSide(el.side);
+        }}
+        onConnectClick={onConnectClick}
+        readOnly={readOnly}
+      />
+    </div>
+  );
+}
+
+/** A screenshot sequence (105428/105449) showed a distinct "Wired ports"
+ *  list below a placed device's face grid — every real port grouped under
+ *  Front/Back headers, named (MGMT01, PTHR01-12, LAG01-04, ...) with its
+ *  connector type, plus a small per-row icon. The icon's exact action
+ *  wasn't legible in those frames; a direct Connect shortcut is the
+ *  reading that fits the rest of this panel (select-then-Connect already
+ *  exists below the grid — a row's own icon std doing the same in one
+ *  click is a natural shortcut, not a new mechanic). Clicking the row
+ *  itself selects that port, same as clicking its tick on the grid above —
+ *  flips the Front/Back grid toggle too so the highlighted tick is never
+ *  on a hidden side. */
+function WiredPortsList({
+  elements,
+  selectedPortId,
+  connectedPortNames,
+  open,
+  onToggleOpen,
+  onSelect,
+  onConnectClick,
+  readOnly
+}: {
+  elements: FaceElement[];
+  selectedPortId: string | null;
+  connectedPortNames: Set<string>;
+  open: boolean;
+  onToggleOpen: () => void;
+  onSelect: (element: FaceElement) => void;
+  onConnectClick: (element: FaceElement) => void;
+  readOnly?: boolean;
+}) {
+  const ports = elements.filter((e) => e.kind === 'port');
+  if (ports.length === 0) return null;
+
+  const groups: Array<{ side: Side; label: string; items: FaceElement[] }> = [
+    { side: 'front', label: 'Front', items: ports.filter((e) => e.side === 'front') },
+    { side: 'back', label: 'Back', items: ports.filter((e) => e.side === 'back') }
+  ].filter((g) => g.items.length > 0);
+
+  return (
+    <div className="space-y-1.5 border-t border-[#27272a] pt-2">
+      <button
+        type="button"
+        onClick={onToggleOpen}
+        className="flex w-full items-center justify-between text-[11px] font-semibold text-[#f4f4f5]"
+      >
+        Wired ports
+        {open ? <TbChevronUp className="size-3.5 text-[#71717a]" /> : <TbChevronDown className="size-3.5 text-[#71717a]" />}
+      </button>
+
+      {open && (
+        <div className="space-y-2">
+          {groups.map((group) => (
+            <div key={group.side} className="space-y-0.5">
+              <p className="px-1 text-[9px] font-semibold uppercase tracking-wide text-[#52525b]">{group.label}</p>
+              {group.items.map((el) => {
+                const portName = computePortNumber(el, elements);
+                const typeLabel = el.connectorType || getPortTypeDef(el.portType || '')?.label || '';
+                const connected = connectedPortNames.has(portName);
+                return (
+                  <div
+                    key={el.id}
+                    className={`flex items-center gap-1.5 rounded-sm px-1.5 py-1 text-[10px] ${
+                      selectedPortId === el.id ? 'bg-blue-500/10 text-[#f4f4f5]' : 'text-[#d4d4d8] hover:bg-[#18181b]'
+                    }`}
+                  >
+                    <button type="button" onClick={() => onSelect(el)} className="flex flex-1 items-center gap-1.5 text-left">
+                      <span className="font-medium">{portName}</span>
+                      {typeLabel && <span className="text-[#71717a]">{typeLabel}</span>}
+                      {connected && <span className="ml-auto size-1.5 rounded-full bg-blue-400" />}
+                    </button>
+                    {!readOnly && (
+                      <button
+                        type="button"
+                        onClick={() => onConnectClick(el)}
+                        className="shrink-0 text-[#52525b] hover:text-blue-400"
+                        title={`Connect ${portName}`}
+                      >
+                        <TbPlugConnected className="size-3.5" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
