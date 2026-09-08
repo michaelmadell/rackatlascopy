@@ -2,8 +2,17 @@ import React from 'react';
 
 export const RackBottom = (props: React.SVGProps<SVGSVGElement>) => (
   // -400..340 (740 wide), matching RackTop/RackMiddle exactly — see
-  // RackTop's own comment for why.
-  <svg viewBox="-400 1035.5 740 87" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" {...props}>
+  // RackTop's own comment for why, and for why `preserveAspectRatio="none"`
+  // below is also needed (the aspect-ratio-preserving default letterboxes
+  // instead of filling the container when the viewBox's own ratio doesn't
+  // match the rendered one, which it never does here).
+  <svg
+    viewBox="-400 1035.5 740 87"
+    preserveAspectRatio="none"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden="true"
+    {...props}
+  >
     {/* Bounding Spacer */}
     <rect x="-340" y="1035.5" width="680" height="87" fill="none" stroke="none" strokeWidth="0"></rect>
 

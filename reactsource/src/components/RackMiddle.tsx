@@ -22,6 +22,14 @@ export const RackMiddle = ({ unitNumber, slotIndex, className = '', ...props }: 
       // plus the rack body (-340..340) — see RackTop's own comment for why
       // this had to shrink from the old `-550 ... 1100`.
       viewBox={`-400 ${yTop} 740 50`}
+      // See RackTop's own comment: default `xMidYMid meet` letterboxes to
+      // whichever axis-scale is smaller instead of filling the container,
+      // and this piece's viewBox aspect ratio (740:50) is nowhere close to
+      // its real rendered one (RACK_WIDTH:ROW_PX — the actual bug behind
+      // devices still not lining up with the empty slots after the
+      // previous viewBox-width fix: this row's own content was rendering
+      // *narrower* than RACK_WIDTH, centered, independent of that fix).
+      preserveAspectRatio="none"
       xmlns="http://www.w3.org/2000/svg"
       aria-hidden="true"
       className={className}

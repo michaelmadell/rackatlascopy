@@ -11,6 +11,17 @@ export const RackTop = ({ className = '', ...props }: React.SVGProps<SVGSVGEleme
     // width, not the fraction of it this SVG actually painted, so devices
     // rendered wider than the visible rack body and spilled past it.
     viewBox="-400 -1122.5 740 58"
+    // Default `xMidYMid meet` preserves the viewBox's own aspect ratio —
+    // 740:58 here, nowhere close to this piece's actual rendered CSS size
+    // (RACK_WIDTH × TOP_PX, a totally different ratio). "meet" picks
+    // whichever of width-scale/height-scale is smaller and letterboxes the
+    // other axis, centered — so the content was rendering *narrower* than
+    // the container, with blank margin on both sides RackGrid's own pixel
+    // math (which assumes the viewBox maps 1:1 onto the container, x-scale
+    // only) knew nothing about. `none` stretches both axes independently
+    // to actually fill the container, matching that assumption. A rack
+    // schematic doesn't need its own aspect ratio preserved.
+    preserveAspectRatio="none"
     xmlns="http://www.w3.org/2000/svg"
     aria-hidden="true"
     className={className}
