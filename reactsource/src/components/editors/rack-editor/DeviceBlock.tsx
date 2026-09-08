@@ -1,7 +1,7 @@
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { getPortTypeDef } from '../rack-device-editor/port-types';
-import { portFraction, computePortNumber } from '../rack-device-editor/layout-utils';
+import { portFraction, computePortNumber, mountedPortSide } from '../rack-device-editor/layout-utils';
 import type { FaceElement, Side } from '@/types';
 
 /**
@@ -81,7 +81,12 @@ export default function DeviceBlock({
     return <div style={{ top, height, left, right }} className="absolute rounded-sm border border-dashed border-blue-400/40 bg-blue-500/5" />;
   }
 
-  const ports: FaceElement[] = (device.elements || []).filter((e: FaceElement) => e.kind === 'port' && e.side === viewSide);
+  // mountedPortSide accounts for device.side (which way it's physically
+  // mounted) — see its own comment. Confirmed against a real recording: a
+  // reversed device's ports moved to the opposite Front/Back toggle from
+  // where they'd shown unmounted-reversed.
+  const effectivePortSide = mountedPortSide(device, viewSide);
+  const ports: FaceElement[] = (device.elements || []).filter((e: FaceElement) => e.kind === 'port' && e.side === effectivePortSide);
   const subRows = (device.heightU || 1) * 2; // SUB_ROWS_PER_U, kept a literal to dodge an extra import for one constant
 
   return (

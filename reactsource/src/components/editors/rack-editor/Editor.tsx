@@ -426,7 +426,14 @@ export default function RackEditor({
     setPendingPlacement(null);
   };
 
-  const visibleSubDevices = subDevices.filter((d: any) => (d.side || 'front') === side);
+  // A device occupies its rack units either way you're looking at it — a
+  // real recording shows the block itself on BOTH Front and Back, not
+  // hidden on whichever face it isn't mounted facing (DeviceBlock's own
+  // port filter, not this list, is what makes a reversed device show its
+  // physical front panel when viewing the rack's back and vice versa —
+  // see its own comment). Filtering devices out here by `side` used to
+  // make a back-mounted device vanish entirely while viewing Front.
+  const visibleSubDevices = subDevices;
   const selectedDevice = subDevices.find((d: any) => d._id === selectedDeviceId);
 
   // How many ports each device already has cabled — shown as a hint in the
@@ -476,7 +483,6 @@ export default function RackEditor({
               hoverRange={hoverRange}
               viewSide={side}
               deviceConnections={deviceConnections}
-              onDeleteConnection={readOnly ? undefined : handleDeleteConnection}
               onCableDrop={readOnly ? undefined : handleCableDrop}
               selectedPort={selectedPort}
               onPortClick={

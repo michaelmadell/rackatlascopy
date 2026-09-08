@@ -6,7 +6,7 @@ import { RackTop } from '@/components/RackTop';
 import { RackMiddle } from '@/components/RackMiddle';
 import { RackBottom } from '@/components/RackBottom';
 import DeviceBlock from './DeviceBlock';
-import { findPortElement, portFraction } from '../rack-device-editor/layout-utils';
+import { findPortElement, portFraction, mountedPortSide } from '../rack-device-editor/layout-utils';
 import type { DeviceConnection, FaceElement, Side } from '@/types';
 
 // Every number below is derived from ONE scale tied to the same real-world
@@ -175,7 +175,6 @@ export default function RackGrid({
   hoverRange,
   viewSide,
   deviceConnections = [],
-  onDeleteConnection,
   onCableDrop,
   selectedPort,
   onPortClick,
@@ -199,7 +198,6 @@ export default function RackGrid({
    *  element get a line; the rest are real connections, just not drawn
    *  here (see the Connections list panel for the full set). */
   deviceConnections?: DeviceConnection[];
-  onDeleteConnection?: (connectionId: string) => void;
   /** Fires when a cable drag (started on a port, see startPortDrag below)
    *  is dropped on a *different* device's port — a real recording's own
    *  direct connect flow: drag from a source port straight to a target
@@ -263,7 +261,12 @@ export default function RackGrid({
   /** Resolves a connection's port1Name/port2Name to real (x,y) anchors —
    *  null unless both devices are on-screen *and* each actually has a port
    *  by that name (a stray connection pointing at a since-deleted or
-   *  since-relinked port draws nothing, rather than guessing). */
+   *  since-relinked port draws nothing, rather than guessing) *and* that
+   *  port is the one actually facing `viewSide` right now (mountedPortSide
+   *  — a device now always renders on both Front and Back, see
+   *  Editor.tsx's own comment on `visibleSubDevices`, so a connection to a
+   *  port on the *other* face needs this check or it'd draw a cable to a
+   *  panel that isn't the one currently showing). */
   function anchorsFor(
     conn: DeviceConnection
   ): { ax: number; ay: number; bx: number; by: number; railAy: number; railBy: number } | null {
@@ -275,6 +278,7 @@ export default function RackGrid({
     const elA = findPortElement(deviceA.elements || [], conn.port1Name);
     const elB = findPortElement(deviceB.elements || [], conn.port2Name);
     if (!elA || !elB) return null;
+    if (elA.side !== mountedPortSide(deviceA, viewSide) || elB.side !== mountedPortSide(deviceB, viewSide)) return null;
     const fracA = portFraction(elA, (deviceA.heightU || 1) * 2);
     const fracB = portFraction(elB, (deviceB.heightU || 1) * 2);
     return {
@@ -313,15 +317,19 @@ export default function RackGrid({
 
   // The selected port's own pin anchor — null unless `selectedPort` names a
   // port that's actually on-screen right now (this rack, this Front/Back
-  // side). Plain (x,y): the pin is a real DOM element positioned with
-  // this component's own local units, not an SVG path needing lane/rail
-  // math the way a cable does.
+  // side — checked via mountedPortSide since a device now renders on both
+  // faces: without this, toggling Front/Back after selecting a port left
+  // its pin floating over whichever face happened to share that row/col,
+  // even though that port itself isn't the one showing there). Plain
+  // (x,y): the pin is a real DOM element positioned with this component's
+  // own local units, not an SVG path needing lane/rail math the way a
+  // cable does.
   let pinAnchor: { device: any; element: FaceElement; x: number; y: number } | null = null;
   if (selectedPort) {
     const device = devicesById.get(selectedPort.deviceId);
     const element = device?.elements?.find((el: FaceElement) => el.id === selectedPort.elementId);
     const rect = device && blockRects.get(device._id);
-    if (device && element && rect) {
+    if (device && element && rect && element.side === mountedPortSide(device, viewSide)) {
       const frac = portFraction(element, (device.heightU || 1) * 2);
       pinAnchor = {
         device,
@@ -499,17 +507,23 @@ export default function RackGrid({
                 ? Math.min(EAR_RIGHT + LANE_FIRST_OFFSET + placement.lane * LANE_GAP, OUTLINE_RIGHT)
                 : Math.max(EAR_LEFT - LANE_FIRST_OFFSET - placement.lane * LANE_GAP, OUTLINE_LEFT);
             return (
+              // Real recording: hovering a cable turns it orange (no click
+              // affordance at all — deleting a connection only happens from
+              // the Connections list panel's own delete icon, confirmed
+              // against a real recording that a click on the trace itself
+              // does nothing). `pointerEvents: 'stroke'` still needed so
+              // hover can register on a 1.5px line without requiring a
+              // pixel-perfect hover.
               <path
                 key={id}
                 d={elbowPath(anchors.ax, anchors.ay, anchors.bx, anchors.by, laneX, anchors.railAy, anchors.railBy)}
                 fill="none"
                 stroke="#3b82f6"
                 strokeWidth={1.5}
-                className={onDeleteConnection ? 'cursor-pointer hover:stroke-red-400' : undefined}
-                style={{ pointerEvents: onDeleteConnection ? 'stroke' : 'none' }}
-                onClick={() => onDeleteConnection?.(id)}
+                className="hover:stroke-orange-400"
+                style={{ pointerEvents: 'stroke' }}
               >
-                <title>{`${conn.port1Name} ↔ ${conn.port2Name}${onDeleteConnection ? ' — click to remove' : ''}`}</title>
+                <title>{`${conn.port1Name} ↔ ${conn.port2Name}`}</title>
               </path>
             );
           })}

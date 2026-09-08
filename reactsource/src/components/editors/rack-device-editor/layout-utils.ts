@@ -15,6 +15,22 @@ export function portFraction(el: FaceElement, subRows: number): { x: number; y: 
   };
 }
 
+/** Which of a device's own two physical port sides (`FaceElement.side`) is
+ *  actually facing `viewSide` — accounting for `device.side`, which way
+ *  the device is physically *mounted* in the rack, not which face you're
+ *  looking at. A normally (front-)mounted device's own front panel faces
+ *  the rack's front, so no swap. A device mounted facing the rack's back
+ *  has its physical front panel visible from the rack's *back*, and its
+ *  rear panel visible from the rack's *front* — the two swap. Shared by
+ *  DeviceBlock (which ports it draws ticks for) and RackGrid (which
+ *  connections it draws a cable for) so the two can't drift out of sync
+ *  the way two independent inline copies of this swap logic could. */
+export function mountedPortSide(device: { side?: Side }, viewSide: Side): Side {
+  const mountedSide = device.side || 'front';
+  if (mountedSide !== 'back') return viewSide;
+  return viewSide === 'front' ? 'back' : 'front';
+}
+
 /** Resolves a connection's `port1Name`/`port2Name` back to the actual
  *  FaceElement on a device — the only handle a DeviceConnection has on a
  *  port is its computed name, so a real anchor point needs this reverse
