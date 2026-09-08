@@ -452,36 +452,6 @@ export default function RackEditor({
            * scrollable canvas, not the rack butted up against the toolbar
            * and the edges of the view. */}
           <div ref={canvasRef} className="h-full overflow-y-auto p-10 flex flex-col items-center gap-8">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1 bg-[#18181b] border border-[#27272a] rounded-lg p-1">
-              {(['front', 'back'] as const).map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setSide(s)}
-                  className={`px-4 py-1 rounded text-xs font-medium capitalize ${
-                    side === s ? 'bg-[#27272a] text-[#f4f4f5]' : 'text-[#a1a1aa]'
-                  }`}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-            {setConnectionsListOpen && (
-              <button
-                type="button"
-                onClick={() => setConnectionsListOpen(!connectionsListOpen)}
-                className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
-                  connectionsListOpen
-                    ? 'border-blue-400 bg-blue-500/10 text-blue-400'
-                    : 'border-[#27272a] bg-[#18181b] text-[#a1a1aa] hover:text-[#f4f4f5]'
-                }`}
-              >
-                Connections{deviceConnections.length > 0 ? ` (${deviceConnections.length})` : ''}
-              </button>
-            )}
-          </div>
-
           {dropError && <p className="text-xs text-red-400">{dropError}</p>}
           {connectError && <p className="text-xs text-red-400">{connectError}</p>}
 
@@ -502,6 +472,24 @@ export default function RackEditor({
               zoom={zoom}
             />
           )}
+          </div>
+
+          {/* Floats over the canvas like the zoom stack — was inline in the
+           * scrollable content before (part of the flex column above the
+           * rack), scrolling away with it instead of staying put. */}
+          <div className="absolute left-1/2 top-4 flex -translate-x-1/2 items-center gap-1 rounded-lg border border-[#27272a] bg-[#18181b] p-1">
+            {(['front', 'back'] as const).map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setSide(s)}
+                className={`px-4 py-1 rounded text-xs font-medium capitalize ${
+                  side === s ? 'bg-[#27272a] text-[#f4f4f5]' : 'text-[#a1a1aa]'
+                }`}
+              >
+                {s}
+              </button>
+            ))}
           </div>
 
           <div className="absolute left-4 top-4 flex flex-col gap-1 rounded-lg border border-[#27272a] bg-[#18181b] p-1">
