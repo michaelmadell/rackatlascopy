@@ -3,8 +3,8 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import * as Sentry from '@sentry/react'
-import mapboxgl from 'mapbox-gl'
-import 'mapbox-gl/dist/mapbox-gl.css'
+import * as maplibregl from 'maplibre-gl'
+import 'maplibre-gl/dist/maplibre-gl.css'
 import {
   ScrollArea,
   Button,
@@ -48,11 +48,11 @@ function LocationsPage() {
   const { setConfig } = useHeaderConfig()
   const { tenantId } = Route.useParams()
   const posthog = usePostHog()
-  const mapRef = useRef<mapboxgl.Map | null>(null)
+  const mapRef = useRef<maplibregl.Map | null>(null)
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const markerClickedRef = useRef(false)
   const [activeLocation, setActiveLocation] = useState<Location | null>(null)
-  const [mapInstance, setMapInstance] = useState<mapboxgl.Map | null>(null)
+  const [mapInstance, setMapInstance] = useState<maplibregl.Map | null>(null)
   const [isEditingMarkers, setIsEditingMarkers] = useState(false)
   const billingStatus = useAppStore((state) => state.billingStatus)
   const readOnly = billingStatus === 'read_only'
@@ -103,7 +103,11 @@ function LocationsPage() {
     if (!tenantId) return
 
     try {
-      // Use Mapbox reverse geocoding to get address from coordinates
+      // Still Mapbox's own Geocoding REST API — separate from the map
+      // renderer swapped to maplibre-gl below, and out of scope for that
+      // swap: this is a plain HTTP call, not mapbox-gl, and AddressSearch
+      // (@mapbox/search-js-react) already depends on the same
+      // VITE_MAPBOX_ACCESS_TOKEN for its own autocomplete elsewhere.
       const response = await axios.get(
         `https://api.mapbox.com/geocoding/v5/mapbox.places/${newCoords.lng},${newCoords.lat}.json`,
         {
@@ -348,34 +352,38 @@ function LocationsPage() {
       return
     }
 
-    mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN
-
     try {
-      const map = new mapboxgl.Map({
+      const map = new maplibregl.Map({
         container: mapContainerRef.current,
-        style: theme === 'dark' ? 'mapbox://styles/mapbox/dark-v11' : 'mapbox://styles/mapbox/light-v11',
+        // Free, no-API-key vector basemaps (CartoDB) — maplibre can't load
+        // `mapbox://styles/...` URLs without a Mapbox account/token, which
+        // is exactly what moving off mapbox-gl was meant to drop.
+        style:
+          theme === 'dark'
+            ? 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json'
+            : 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
         center: tenant?.latitude && tenant?.longitude ? [tenant.longitude, tenant.latitude] : [16.378, 48.207], // Vienna coordinates [lng, lat]
         zoom: 12,
         maxTileCacheSize: 50
       })
 
-      // Log WebGL context loss for evidence — Mapbox handles recovery internally
+      // Log WebGL context loss for evidence — maplibre handles recovery internally
       map.getCanvas().addEventListener('webglcontextlost', () => {
-        Sentry.logger.warn('[mapbox] webgl context lost')
+        Sentry.logger.warn('[maplibre] webgl context lost')
       })
 
-      map.addControl(new mapboxgl.NavigationControl(), 'top-left')
-      // map.addControl(new mapboxgl.FullscreenControl(), 'top-left')
+      map.addControl(new maplibregl.NavigationControl(), 'top-left')
+      // map.addControl(new maplibregl.FullscreenControl(), 'top-left')
 
       map.on('error', (e) => {
         // Wrap so the message doesn't match Sentry ignoreErrors filters (e.g. NetworkError)
         const originalMessage = e.error?.message || String(e.error) || 'unknown'
-        const wrapped = new Error(`[mapbox] ${originalMessage}`)
+        const wrapped = new Error(`[maplibre] ${originalMessage}`)
         Sentry.withScope((scope) => {
-          scope.setTag('action', 'mapbox_map_error')
-          scope.setExtra('mapbox_error_status', (e.error as { status?: number })?.status)
-          scope.setExtra('mapbox_error_url', (e.error as { url?: string })?.url)
-          scope.setExtra('mapbox_error_original', originalMessage)
+          scope.setTag('action', 'maplibre_map_error')
+          scope.setExtra('maplibre_error_status', (e.error as { status?: number })?.status)
+          scope.setExtra('maplibre_error_url', (e.error as { url?: string })?.url)
+          scope.setExtra('maplibre_error_original', originalMessage)
           Sentry.captureException(wrapped)
         })
       })
@@ -403,7 +411,7 @@ function LocationsPage() {
     } catch (error) {
       toast.error(m.map_initialization_failed())
       Sentry.withScope((scope) => {
-        scope.setTag('action', 'mapbox_init')
+        scope.setTag('action', 'maplibre_init')
         Sentry.captureException(error)
       })
     }
@@ -441,7 +449,7 @@ function LocationsPage() {
     const locationsWithCoords = locations.filter((l) => l.latitude && l.longitude)
 
     if (locationsWithCoords.length > 0) {
-      const bounds = new mapboxgl.LngLatBounds()
+      const bounds = new maplibregl.LngLatBounds()
       for (const location of locationsWithCoords) {
         bounds.extend([location.longitude, location.latitude])
       }

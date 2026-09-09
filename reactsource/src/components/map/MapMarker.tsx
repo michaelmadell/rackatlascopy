@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import mapboxgl from 'mapbox-gl'
+import * as maplibregl from 'maplibre-gl'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import type { Location } from '@/types'
 
 interface MapMarkerProps {
-  map: mapboxgl.Map
+  map: maplibregl.Map
   location: Location
   isActive?: boolean
   onClick: (location: Location) => void
@@ -15,7 +15,7 @@ interface MapMarkerProps {
 
 function MapMarker({ map, location, isActive, onClick, draggable = false, onDragEnd }: MapMarkerProps) {
   const isMobile = useMediaQuery('(max-width: 767px)')
-  const markerRef = useRef<mapboxgl.Marker | null>(null)
+  const markerRef = useRef<maplibregl.Marker | null>(null)
   const [markerContainer, setMarkerContainer] = useState<HTMLDivElement | null>(null)
 
   // Create marker only once when component mounts
@@ -24,7 +24,7 @@ function MapMarker({ map, location, isActive, onClick, draggable = false, onDrag
     if (!map) return
     const el = document.createElement('div')
 
-    const marker = new mapboxgl.Marker({
+    const marker = new maplibregl.Marker({
       element: el,
       draggable: draggable
     })

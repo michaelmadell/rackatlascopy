@@ -1,9 +1,9 @@
 import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import mapboxgl from 'mapbox-gl'
+import * as maplibregl from 'maplibre-gl'
 
 interface MapPopupProps {
-  map: mapboxgl.Map
+  map: maplibregl.Map
   activeLocation: {
     _id: string
     reference: string
@@ -16,7 +16,7 @@ interface MapPopupProps {
 }
 
 function MapPopup({ map, activeLocation, onClose, children }: MapPopupProps) {
-  const popupRef = useRef<mapboxgl.Popup | null>(null)
+  const popupRef = useRef<maplibregl.Popup | null>(null)
   const contentRef = useRef(document.createElement('div'))
 
   // Update popup when activeLocation changes
@@ -28,7 +28,7 @@ function MapPopup({ map, activeLocation, onClose, children }: MapPopupProps) {
     }
 
     // Create a new popup for each active location
-    popupRef.current = new mapboxgl.Popup({
+    popupRef.current = new maplibregl.Popup({
       closeOnClick: false,
       offset: 25
     })

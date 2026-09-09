@@ -79,6 +79,7 @@
     "lezer": "^0.13.5",
     "libphonenumber": "^0.0.10",
     "mapbox": "^1.0.0-beta10",
+    "maplibre-gl": "^6.8.0",
     "paraglide": "^0.0.1",
     "posthog-js": "^1.425.1",
     "radix-ui": "^1.6.7",
