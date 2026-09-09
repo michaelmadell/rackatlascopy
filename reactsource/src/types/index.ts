@@ -268,9 +268,15 @@ export interface Location {
   _id: string;
   id?: string;
   name: string;
-  address?: string;
-  city?: string;
-  country?: string;
+  reference?: string;
+  fullReference?: string;
+  address?: Address;
+  contactPerson?: ContactPerson;
+  responsibleUserId?: string | null;
+  latitude?: number;
+  longitude?: number;
+  notes?: string;
+  notesExcerpt?: string;
   floors?: Floor[];
   rooms?: Room[];
 }
@@ -311,9 +317,24 @@ export interface SearchResult {
 
 export interface Address {
   line1?: string;
+  line2?: string;
   city?: string;
+  state?: string;
   postalCode?: string;
+  // Free-text country name — CreateLocationDialog carries this alongside
+  // countryCode but nothing currently renders/reads it back; kept so
+  // assigning its form values to `Address` doesn't need a cast.
+  country?: string;
   countryCode?: string;
+}
+
+export interface ContactPerson {
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phone?: string;
+  jobTitle?: string;
+  department?: string;
 }
 
 export interface DeviceNamingConfig {

@@ -38,12 +38,16 @@ export function registerLocationRoutes(app: FastifyInstance, db: Database.Databa
     columns: [
       { db: 'name', api: 'name' },
       { db: 'reference', api: 'reference' },
-      { db: 'address', api: 'address' },
-      { db: 'city', api: 'city' },
-      { db: 'country', api: 'country' },
+      // Nested objects — the frontend edits/reads `address` and
+      // `contactPerson` as whole objects (line1/line2/city/state/
+      // postalCode/countryCode, and firstName/lastName/email/phone/
+      // jobTitle/department respectively), never as flat fields.
+      { db: 'address_json', api: 'address', json: true },
+      { db: 'contact_person_json', api: 'contactPerson', json: true },
       { db: 'latitude', api: 'latitude' },
       { db: 'longitude', api: 'longitude' },
-      { db: 'responsible_user_id', api: 'responsibleUserId' }
+      { db: 'responsible_user_id', api: 'responsibleUserId' },
+      { db: 'notes', api: 'notes' }
     ],
     sortableColumns: ['name'],
     defaultSort: 'name'

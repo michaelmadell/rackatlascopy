@@ -56,13 +56,11 @@ export function seed(db: Database.Database): void {
   )
 
   const locationId = randomUUID()
-  db.prepare('INSERT INTO locations (id, tenant_id, name, address, city, country) VALUES (?, ?, ?, ?, ?, ?)').run(
+  db.prepare('INSERT INTO locations (id, tenant_id, name, address_json) VALUES (?, ?, ?, ?)').run(
     locationId,
     tenantId,
     'HOME',
-    '24 Lower Cannon Road',
-    'Newton Abbot',
-    'GB'
+    JSON.stringify({ line1: '24 Lower Cannon Road', city: 'Newton Abbot', countryCode: 'GB' })
   )
 
   const floorId = randomUUID()

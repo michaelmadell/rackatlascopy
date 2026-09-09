@@ -158,8 +158,31 @@ function migrate(db: Database.Database): void {
     reference: 'TEXT',
     responsible_user_id: 'TEXT',
     latitude: 'REAL',
-    longitude: 'REAL'
+    longitude: 'REAL',
+    // The original schema's flat `address`/`city`/`country` columns never
+    // matched what the frontend actually reads/writes — it treats a
+    // location's address as one nested object (line1/line2/city/state/
+    // postalCode/countryCode) and edits a whole `contactPerson` object
+    // alongside it. Both round-trip as JSON now; the old flat columns are
+    // left in place (unused) rather than dropped.
+    address_json: 'TEXT',
+    contact_person_json: 'TEXT',
+    // Free-text notes (rich MDX content), saved via the card's notes-pencil
+    // icon → NoteEditorDialogMdx → handleSaveNotes.
+    notes: 'TEXT'
   })
+  // Backfill: an already-seeded DB has real address data sitting in the old
+  // flat address/city/country columns with no address_json yet — carry it
+  // over once so existing locations don't silently go blank in the edit
+  // form. New rows are written straight to address_json going forward.
+  for (const row of db
+    .prepare('SELECT id, address, city, country FROM locations WHERE address_json IS NULL AND address IS NOT NULL')
+    .all() as { id: string; address: string | null; city: string | null; country: string | null }[]) {
+    db.prepare('UPDATE locations SET address_json = ? WHERE id = ?').run(
+      JSON.stringify({ line1: row.address, city: row.city, countryCode: row.country }),
+      row.id
+    )
+  }
   addColumns(db, 'floors', { reference: 'TEXT', responsible_user_id: 'TEXT' })
   addColumns(db, 'rooms', {
     reference: 'TEXT',
