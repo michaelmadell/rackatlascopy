@@ -203,7 +203,7 @@ export interface HoverRange {
  */
 export default function RackGrid({
   heightU,
-  devices,
+  devices: allDevices,
   selectedDeviceId,
   onSelectDevice,
   readOnly,
@@ -279,6 +279,14 @@ export default function RackGrid({
   const [dragCable, setDragCable] = useState<{ device: any; element: FaceElement; x: number; y: number } | null>(null);
 
   const units = Array.from({ length: heightU }, (_, i) => heightU - i);
+
+  // A full-depth device (the default — undefined counts as 'full') really
+  // does present on both faces of the rack, so it stays visible/occupying
+  // on both Front and Back, same as always. A half-depth device only
+  // physically presents on its own mount `side` — the opposite face's same
+  // unit is free for a *different* half-depth device, so it's filtered out
+  // of this view entirely rather than drawn empty or ghosted.
+  const devices = allDevices.filter((d) => (d.depth || 'full') !== 'half' || (d.side || 'front') === viewSide);
 
   const occupiedBy = new Map<number, string>();
   for (const device of devices) {

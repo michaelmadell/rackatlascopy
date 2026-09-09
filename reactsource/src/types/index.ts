@@ -194,6 +194,15 @@ export interface Device {
   heightU?: number;
   rackUnits?: number;
   side?: 'front' | 'back' | 'Front' | 'Back';
+  /** 'half' means this device only physically presents on its own mount
+   *  `side` — the opposite face's same rack unit is free for a different
+   *  half-depth device (a front-mounted shallow patch panel sharing a U
+   *  with a back-mounted shallow one, say). Undefined/'full' (the default)
+   *  keeps today's behavior: occupies and renders on both Front and Back
+   *  regardless of `side`, since `side` alone only ever decided which of
+   *  the device's own ports face which view, not whether the device body
+   *  itself blocks the opposite face. */
+  depth?: 'full' | 'half';
   locationId?: string;
   roomId?: string;
   rackId?: string;

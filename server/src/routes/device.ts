@@ -47,6 +47,7 @@ const deviceColumns = [
   // ...index.tsx:1051 — same column, the name the app sends.
   { db: 'height_u', api: 'rackUnitsCount' },
   { db: 'side', api: 'side' },
+  { db: 'depth', api: 'depth' },
   { db: 'location_id', api: 'locationId' },
   { db: 'floor_id', api: 'floorId' },
   { db: 'room_id', api: 'roomId' },
@@ -86,6 +87,7 @@ export function deviceRowToDoc(row: any): Record<string, unknown> {
     heightU: row.height_u,
     rackUnitsCount: row.height_u,
     side: row.side,
+    depth: row.depth,
     locationId: row.location_id,
     floorId: row.floor_id,
     roomId: row.room_id,

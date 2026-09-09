@@ -218,7 +218,12 @@ function migrate(db: Database.Database): void {
     // Data-URI thumbnails — no real file/object storage in this local
     // clone, so a photo round-trips straight through this JSON column.
     photos_json: 'TEXT',
-    notes: 'TEXT'
+    notes: 'TEXT',
+    // 'full' (the default, NULL here) or 'half' — a half-depth device only
+    // occupies/renders on its own mount `side`, freeing the opposite face
+    // of the same rack unit for a different half-depth device. See the
+    // `depth` field comment on the frontend's Device type.
+    depth: 'TEXT'
   })
   addColumns(db, 'device_connections', {
     direction: 'TEXT',

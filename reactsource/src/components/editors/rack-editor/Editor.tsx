@@ -63,7 +63,7 @@ const lockExistingToVerticalAxis: Modifier = ({ transform, active }) => {
  *  until a specific device is picked in AddDeviceDialog, so drag/hover uses
  *  a 1U placeholder — handleInsertPendingDevice re-validates against the
  *  device actually picked before creating it. */
-function resolveDrop(drag: DragPayload, hoveredUnit: number, heightU: number, subDevices: any[]) {
+function resolveDrop(drag: DragPayload, hoveredUnit: number, heightU: number, subDevices: any[], viewSide: 'front' | 'back') {
   const deviceHeightU = drag.kind === 'existing' ? drag.device.heightU || 1 : 1;
   const targetStart = hoveredUnit - deviceHeightU + 1;
   const targetTop = hoveredUnit;
@@ -75,6 +75,14 @@ function resolveDrop(drag: DragPayload, hoveredUnit: number, heightU: number, su
   const selfId = drag.kind === 'existing' ? drag.device._id : null;
   for (const other of subDevices) {
     if (other._id === selfId) continue;
+    // Same rule RackGrid's own render filter uses: a half-depth device
+    // mounted on the *other* face doesn't occupy this one — matches the
+    // slot already rendering as empty (its own "+" showing) on this view
+    // when only an opposite-side half-depth device is there. What matters
+    // is only whether `other` occupies *this* view, never the dragged
+    // item's own depth/side (it lands according to its own after the
+    // move/insert, independent of this check).
+    if ((other.depth || 'full') === 'half' && (other.side || 'front') !== viewSide) continue;
     const otherStart = other.unit || 1;
     const otherTop = otherStart + (other.heightU || 1) - 1;
     if (targetStart <= otherTop && otherStart <= targetTop) {
@@ -334,7 +342,7 @@ export default function RackEditor({
       return;
     }
     const hoveredUnit = (event.over.data.current as { unit: number }).unit;
-    const { targetStart, targetTop, valid } = resolveDrop(drag, hoveredUnit, heightU, subDevices);
+    const { targetStart, targetTop, valid } = resolveDrop(drag, hoveredUnit, heightU, subDevices, side);
     setHoverRange({ start: targetStart, end: targetTop, valid });
   };
 
@@ -345,7 +353,7 @@ export default function RackEditor({
     if (!drag || !event.over || !rack?._id || !tenantId) return;
 
     const hoveredUnit = (event.over.data.current as { unit: number }).unit;
-    const { targetStart, valid, reason } = resolveDrop(drag, hoveredUnit, heightU, subDevices);
+    const { targetStart, valid, reason } = resolveDrop(drag, hoveredUnit, heightU, subDevices, side);
 
     if (!valid) {
       setDropError(reason);
@@ -384,6 +392,13 @@ export default function RackEditor({
       return;
     }
     for (const other of subDevices) {
+      // Same rule RackGrid's own render filter uses: a half-depth device
+      // that's mounted on the *other* face doesn't occupy this one, so it's
+      // not a real blocker for something being inserted here — matches
+      // what the slot's own "+" already implied by rendering as empty on
+      // this side in the first place.
+      const otherOccupiesThisSide = (other.depth || 'full') !== 'half' || (other.side || 'front') === side;
+      if (!otherOccupiesThisSide) continue;
       const otherStart = other.unit || 1;
       const otherTop = otherStart + (other.heightU || 1) - 1;
       if (pendingPlacement.targetStart <= otherTop && otherStart <= targetTop) {
@@ -858,6 +873,7 @@ function DeviceProperties({
   const [heightU, setHeightU] = useState(device.heightU ?? 1);
   const [unit, setUnit] = useState(device.unit ?? 1);
   const [side, setSide] = useState(device.side || 'front');
+  const [depth, setDepth] = useState(device.depth || 'full');
   const [responsibleUserId, setResponsibleUserId] = useState(device.responsibleUserId || '');
   const [manufacturer, setManufacturer] = useState(device.manufacturer || '');
   const [modelName, setModelName] = useState(device.modelName || '');
@@ -881,6 +897,7 @@ function DeviceProperties({
     setHeightU(device.heightU ?? 1);
     setUnit(device.unit ?? 1);
     setSide(device.side || 'front');
+    setDepth(device.depth || 'full');
     setResponsibleUserId(device.responsibleUserId || '');
     setManufacturer(device.manufacturer || '');
     setModelName(device.modelName || '');
@@ -903,6 +920,7 @@ function DeviceProperties({
       heightU,
       unit,
       side,
+      depth,
       responsibleUserId: responsibleUserId || null,
       manufacturer,
       modelName,
@@ -952,6 +970,21 @@ function DeviceProperties({
           <SelectContent>
             <SelectItem value="front">Front</SelectItem>
             <SelectItem value="back">Back</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div>
+        <Label>Depth</Label>
+        <Select value={depth} onValueChange={setDepth} disabled={readOnly}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="full">Full</SelectItem>
+            {/* Only occupies its own mount side (see Side above) — the
+             *  opposite face of this same rack unit stays free for a
+             *  different half-depth device. */}
+            <SelectItem value="half">Half</SelectItem>
           </SelectContent>
         </Select>
       </div>
