@@ -214,6 +214,7 @@ export default function RackGrid({
   selectedPort,
   onPortClick,
   onPinClick,
+  onSlotClick,
   zoom
 }: {
   heightU: number;
@@ -257,6 +258,13 @@ export default function RackGrid({
   /** Fires when the floating pin above the selected port is clicked —
    *  opens the Connect Port dialog for that exact port. */
   onPinClick?: (device: any, element: FaceElement) => void;
+  /** Fires when an empty slot's own "+" placeholder is clicked (not
+   *  dragged) — real app opens the "Add device" dialog scoped to *no*
+   *  category yet (a category grid: Cable Manager/Firewall/.../UPS),
+   *  distinct from the drag-a-palette-chip flow, which already knows its
+   *  category before the dialog opens. Undefined (readOnly) disables it,
+   *  same as onCableDrop/onPortClick above. */
+  onSlotClick?: (unit: number) => void;
   /** CSS scale the whole elevation renders at (Editor.tsx's own zoom
    *  controls / ctrl+scroll) — everything on this component's own side
    *  (port ticks, cable paths, the selection pin) is computed in
@@ -469,6 +477,7 @@ export default function RackGrid({
                 slotIndex={i}
                 occupied={occupiedBy.has(u)}
                 readOnly={readOnly}
+                onSlotClick={onSlotClick}
                 hoverState={
                   hoverRange && u >= hoverRange.start && u <= hoverRange.end
                     ? hoverRange.valid
@@ -602,6 +611,7 @@ function RackSlot({
   slotIndex,
   occupied,
   readOnly,
+  onSlotClick,
   hoverState
 }: {
   unit: number;
@@ -611,6 +621,7 @@ function RackSlot({
   slotIndex: number;
   occupied: boolean;
   readOnly?: boolean;
+  onSlotClick?: (unit: number) => void;
   hoverState: 'valid' | 'invalid' | null;
 }) {
   const { setNodeRef } = useDroppable({
@@ -630,6 +641,10 @@ function RackSlot({
             ? 'bg-red-500/20'
             : ''
       }`}
+      // Only an empty slot's own placeholder ("+") is clickable — an
+      // occupied one is visually covered by its DeviceBlock overlay anyway,
+      // but guard it too rather than rely on that alone.
+      onClick={!readOnly && !occupied && onSlotClick ? () => onSlotClick(unit) : undefined}
     >
       <RackMiddle unitNumber={unit} slotIndex={slotIndex} className="w-full h-full" />
     </div>

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Dialog, DialogContent, Button, Input } from '@/patchdocs-ui';
-import { TbSearch } from 'react-icons/tb';
+import { TbChevronLeft, TbSearch } from 'react-icons/tb';
 import { getDeviceVisual } from './device-icon';
 import { getBuiltinDevicesForCategory, type BuiltinDevice } from './builtin-catalog';
+import { STANDARD_DEVICE_TYPES } from '@/lib/device-constants';
 
 /** A device pickable from this dialog — either a real CustomRackDevice
  *  (`.ports`, `._id` a real database id) or a BuiltinDevice (`.ports`
@@ -28,15 +29,26 @@ export default function AddDeviceDialog({
   categoryLabel,
   customRackDevices,
   onInsert,
+  onCategorySelect,
   onCreateCustom,
   onClose,
   inserting
 }: {
   open: boolean;
+  /** null when opened by clicking an empty slot's own "+" placeholder,
+   *  before any category is chosen — real app shows a category grid
+   *  (Cable Manager/Firewall/.../UPS) first in that case. Already a real
+   *  category when opened by dragging a palette chip (which carries its
+   *  own category), so the grid step is skipped entirely for that flow. */
   category: string | null;
   categoryLabel: string;
   customRackDevices: any[];
   onInsert: (device: PickableDevice) => void;
+  /** Fires when a category is picked from the grid (or "back" is used to
+   *  return to it, with `null`) — lifted to the caller rather than kept as
+   *  local state so "+ Create Custom Device" downstream still knows the
+   *  right category to pre-seed even when this dialog started with none. */
+  onCategorySelect: (category: string | null) => void;
   onCreateCustom: () => void;
   onClose: () => void;
   inserting?: boolean;
@@ -51,7 +63,30 @@ export default function AddDeviceDialog({
     }
   }, [open, category]);
 
-  if (!category) return null;
+  if (!open) return null;
+
+  if (!category) {
+    return (
+      <Dialog open={open} onOpenChange={(next: boolean) => !next && onClose()}>
+        <DialogContent className="max-w-md sm:max-w-md">
+          <h2 className="mb-3 pr-8 text-base font-bold text-[#f4f4f5]">Add device</h2>
+          <p className="mb-2 text-xs font-medium text-[#a1a1aa]">Select type</p>
+          <div className="max-h-96 space-y-1 overflow-y-auto">
+            {STANDARD_DEVICE_TYPES.rack.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => onCategorySelect(c.id)}
+                className="w-full rounded-sm border border-[#27272a] bg-[#18181b] px-3 py-2.5 text-left text-xs text-[#d4d4d8] transition-colors hover:border-[#3f3f46] hover:bg-[#202024]"
+              >
+                {c.label()}
+              </button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   const matchingCustom = customRackDevices.filter((d) => d.deviceType === category || d.type === category);
   const devices: PickableDevice[] = [...getBuiltinDevicesForCategory(category), ...matchingCustom];
@@ -62,7 +97,14 @@ export default function AddDeviceDialog({
     <Dialog open={open} onOpenChange={(next: boolean) => !next && onClose()}>
       <DialogContent className="max-w-2xl sm:max-w-2xl">
         <h2 className="mb-1 pr-8 text-base font-bold text-[#f4f4f5]">Add device</h2>
-        <p className="mb-3 text-xs text-[#71717a]">{categoryLabel}</p>
+        <button
+          type="button"
+          onClick={() => onCategorySelect(null)}
+          className="mb-3 flex items-center gap-1 text-xs text-[#71717a] hover:text-[#a1a1aa]"
+        >
+          <TbChevronLeft className="size-3.5" />
+          {categoryLabel}
+        </button>
 
         <div className="grid grid-cols-2 gap-4">
           <div>

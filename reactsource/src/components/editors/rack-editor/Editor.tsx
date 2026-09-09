@@ -155,7 +155,13 @@ export default function RackEditor({
   const [activeDrag, setActiveDrag] = useState<DragPayload | null>(null);
   const [hoverRange, setHoverRange] = useState<HoverRange | null>(null);
   const [dropError, setDropError] = useState<string | null>(null);
-  const [pendingPlacement, setPendingPlacement] = useState<{ category: string; targetStart: number } | null>(null);
+  // category is null right after clicking an empty slot's own "+" (real
+  // app opens the dialog scoped to no category yet, letting the user pick
+  // one from a grid first) — set to a real category once either a palette
+  // drag already knew it, or the dialog's own category grid picks one.
+  const [pendingPlacement, setPendingPlacement] = useState<{ category: string | null; targetStart: number } | null>(
+    null
+  );
   const [inserting, setInserting] = useState(false);
   // "+ Create Custom Device" inside AddDeviceDialog jumps here — the Device
   // Library's own editor, pre-seeded with pendingPlacement's category — and
@@ -494,6 +500,7 @@ export default function RackEditor({
                     }
               }
               onPinClick={readOnly ? undefined : handlePortClick}
+              onSlotClick={readOnly ? undefined : (unit) => setPendingPlacement({ category: null, targetStart: unit })}
               zoom={zoom}
             />
           )}
@@ -614,6 +621,7 @@ export default function RackEditor({
         categoryLabel={STANDARD_DEVICE_TYPES.rack.find((c) => c.id === pendingPlacement?.category)?.label() ?? ''}
         customRackDevices={customRackDevices}
         onInsert={handleInsertDevice}
+        onCategorySelect={(category) => setPendingPlacement((p) => (p ? { ...p, category } : p))}
         onCreateCustom={() => setCreatingCustomDevice(true)}
         onClose={() => setPendingPlacement(null)}
         inserting={inserting}
