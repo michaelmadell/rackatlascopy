@@ -11,7 +11,7 @@ import {
   Input,
   Label,
   ScrollArea
-} from '@patchdocs/ui'
+} from '@/patchdocs-ui'
 import { TbLoader2 } from 'react-icons/tb'
 import { toast } from 'sonner'
 import type { SearchBoxFeatureSuggestion } from '@mapbox/search-js-core'
@@ -63,11 +63,13 @@ const EditLocationDialog = ({
   open,
   onOpenChange,
   location,
-  permissions,
   readOnly,
   onSave
 }: EditLocationDialogProps) => {
-  const canWrite = !readOnly && permissions?.canWrite
+  // No permissions system on this backend (crud-factory never returns a
+  // `permissions` object) — readOnly (billing-status-derived, computed by
+  // the caller) is the only real write gate here.
+  const canWrite = !readOnly
   const validationSchemas = getValidationSchemas()
   const userOptions = useResponsibleUserOptions()
   // Coordinates picked from the address search; they win over geocoding the typed-in fields.

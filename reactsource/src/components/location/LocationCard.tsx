@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Card, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@patchdocs/ui'
+import { Button, Card, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/patchdocs-ui'
 import {
   TbAddressBook,
   TbBuilding,
@@ -100,8 +100,10 @@ const LocationCard = ({
     posthog?.capture(event)
   }
 
-  const permissions = full?.permissions
-  const canWrite = !readOnly && permissions?.canWrite
+  // No permissions system on this backend (crud-factory never returns a
+  // `permissions` object on GET) — readOnly (billing-status-derived,
+  // computed by the caller) is the only real write gate here.
+  const canWrite = !readOnly
   const canMove = canWrite && canMoveResourceType('location', customer?.accountType, tenants.length)
   const address = getAddressString(location.address)
   const contact = location.contactPerson?.lastName ? location.contactPerson : undefined
@@ -135,9 +137,12 @@ const LocationCard = ({
             />
           )}
         </Button>
-        <DropdownMenu onOpenChange={(open) => open && setLoadFull(true)}>
+        <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button size="sm-icon" variant="ghost" className="p-0.5 sm:p-1">
+            {/* This UI kit's DropdownMenu doesn't support onOpenChange (it
+                only ever reads `children`) — trigger the full-location fetch
+                straight off this button's own click instead. */}
+            <Button size="sm-icon" variant="ghost" className="p-0.5 sm:p-1" onClick={() => setLoadFull(true)}>
               <TbDotsVertical className="size-4 sm:size-5" />
             </Button>
           </DropdownMenuTrigger>
@@ -165,7 +170,7 @@ const LocationCard = ({
                 {m.loading()}&hellip;
               </DropdownMenuItem>
             )}
-            {permissions?.canReadAll && !readOnly && (
+            {!readOnly && (
               <DropdownMenuItem
                 className="text-xs cursor-pointer py-1"
                 onClick={() => triggerExport('location', location._id)}>
@@ -173,19 +178,17 @@ const LocationCard = ({
                 {m.export_as_pdf()}
               </DropdownMenuItem>
             )}
-            {permissions?.canReadAll && (
-              <DropdownMenuItem className="text-xs cursor-pointer py-1" onClick={() => onActivityLog(location)}>
-                <TbTimelineEventText className="size-3" />
-                {m.activity_log()}
-              </DropdownMenuItem>
-            )}
+            <DropdownMenuItem className="text-xs cursor-pointer py-1" onClick={() => onActivityLog(location)}>
+              <TbTimelineEventText className="size-3" />
+              {m.activity_log()}
+            </DropdownMenuItem>
             {canMove && full && (
               <DropdownMenuItem className="text-xs cursor-pointer py-1" onClick={() => onMove(full.data)}>
                 <TbArrowsMove className="size-3" />
                 {m.move()}
               </DropdownMenuItem>
             )}
-            {!readOnly && permissions?.canDelete && (
+            {!readOnly && (
               <DropdownMenuItem className="text-xs cursor-pointer py-1" onClick={() => onDelete(location)}>
                 <TbTrash className="size-3 text-destructive-foreground" />
                 {m.delete()}
