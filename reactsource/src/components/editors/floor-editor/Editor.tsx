@@ -12,6 +12,8 @@ import { TbPlus, TbServer } from 'react-icons/tb';
  */
 export default function FloorEditor({
   floor,
+  floors,
+  currentFloorId,
   location,
   rooms = [],
   devices = [],
@@ -25,6 +27,13 @@ export default function FloorEditor({
   onCreateDevice,
 }: {
   floor?: any;
+  // The caller (t.$tenantId.locations.$locationId.index.tsx) never passes a
+  // single resolved `floor` — it passes the whole `floors` array plus
+  // `currentFloorId`, same as it hands FloorSelector. Accept both shapes:
+  // an explicit `floor` wins if a future caller ever passes one directly,
+  // otherwise resolve it from `floors`/`currentFloorId` below.
+  floors?: any[];
+  currentFloorId?: string;
   location?: any;
   rooms?: any[];
   devices?: any[];
@@ -38,6 +47,7 @@ export default function FloorEditor({
   onCreateDevice?: (data: { floorId: string; roomId: string; reference: string; name?: string; category: 'floor'; deviceType: string }) => Promise<boolean>;
   [key: string]: any;
 }) {
+  const currentFloor = floor ?? floors?.find((f: any) => f._id === currentFloorId);
   const [newRoomName, setNewRoomName] = useState('');
   const [addingRoom, setAddingRoom] = useState(false);
   const [newDeviceName, setNewDeviceName] = useState('');
@@ -67,9 +77,9 @@ export default function FloorEditor({
   };
 
   const handleAddDevice = async (roomId: string) => {
-    if (!newDeviceName.trim() || !onCreateDevice || !floor?._id) return;
+    if (!newDeviceName.trim() || !onCreateDevice || !currentFloor?._id) return;
     const ok = await onCreateDevice({
-      floorId: floor._id,
+      floorId: currentFloor._id,
       roomId,
       reference: newDeviceName.trim().toUpperCase().replace(/\s+/g, '-'),
       name: newDeviceName.trim(),
@@ -86,7 +96,7 @@ export default function FloorEditor({
     <div className="flex-1 overflow-y-auto p-6 bg-[#0c0c0e] text-[#f4f4f5] space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-base font-bold">{floor?.name || 'Floor'}</h2>
+          <h2 className="text-base font-bold">{currentFloor?.name || 'Floor'}</h2>
           <p className="text-xs text-[#a1a1aa]">{location?.name}</p>
         </div>
         {!readOnly && (
